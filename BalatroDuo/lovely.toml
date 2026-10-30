@@ -1,0 +1,65 @@
+[manifest]
+version = "0.6.1"
+dump_lua = false
+priority = 0
+
+# Balatro Duo: two windows, two own runs, one shared blind score.
+
+[[patches]]
+[patches.copy]
+target = "main.lua"
+position = "append"
+sources = ["duo_lang.lua", "duo.lua"]
+
+# Own hand score: count it, send it to the partner.
+[[patches]]
+[patches.pattern]
+target = "functions/state_events.lua"
+pattern = "ease_to = G.GAME.chips + math.floor(hand_chips*mult),"
+position = "at"
+payload = "ease_to = DUO_on_hand(G.GAME.chips, math.floor(hand_chips*mult)),"
+match_indent = true
+
+# Out of hands: wait for the partner instead of ending the round.
+[[patches]]
+[patches.pattern]
+target = "game.lua"
+pattern = "if G.GAME.chips - G.GAME.blind.chips >= 0 or G.GAME.current_round.hands_left < 1 then"
+position = "at"
+payload = "if DUO_hp_end() then"
+match_indent = true
+
+# Deck ran out: same, wait for the partner.
+[[patches]]
+[patches.pattern]
+target = "game.lua"
+pattern = "if #G.hand.cards < 1 and #G.deck.cards < 1 and #G.play.cards < 1 then"
+position = "at"
+payload = "if #G.hand.cards < 1 and #G.deck.cards < 1 and #G.play.cards < 1 and DUO_deck_out_ok() then"
+match_indent = true
+
+[[patches]]
+[patches.pattern]
+target = "game.lua"
+pattern = "if #G.hand.cards < 1 and #G.deck.cards < 1 then"
+position = "at"
+payload = "if #G.hand.cards < 1 and #G.deck.cards < 1 and DUO_deck_out_ok() then"
+match_indent = true
+
+# Main menu: CO-OP button.
+[[patches]]
+[patches.pattern]
+target = "functions/UI_definitions.lua"
+pattern = "UIBox_button{id = 'collection_button', button = \"your_collection\"*"
+position = "after"
+payload = "UIBox_button{id = 'duo_button', button = \"duo_menu\", colour = G.C.PURPLE, minw = 2.4, minh = 1.55, label = {DUO_L('menu_button')}, scale = text_scale*1.3, col = true},"
+match_indent = true
+
+# Secret hand planets (Planet X, Ceres, Eris): also allowed when the partner found the hand.
+[[patches]]
+[patches.pattern]
+target = "functions/common_events.lua"
+pattern = "if (not v.config.softlock or G.GAME.hands[v.config.hand_type].played > 0) then"
+position = "at"
+payload = "if (not v.config.softlock or G.GAME.hands[v.config.hand_type].played > 0 or DUO_hand_known(v.config.hand_type)) then"
+match_indent = true
