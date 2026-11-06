@@ -12,12 +12,14 @@
 #   -Slow N    : the guest waits N s before each hand (the host runs out of hands first)
 #   -Only host|guest : (re)start only that window, keep the other and the deployed mod
 #   -Continue  : the host bot continues its saved run instead of starting a new one
+#   -PackLag N : bots stay N s in each booster pack (like a person picking cards)
 #   -TwoWindows: start only the host, with "Play together" (the host opens the guest window itself)
 param([double]$Diff = 1, [int]$QuitAnte = 3, [int]$Speed = 4, [switch]$NoBot,
   [string]$DeckMode = "shared", [string]$HostDeck = "b_blue", [string]$GuestDeck = "b_yellow", [int]$Stake = 2,
   [int]$GuestLag = 0, [int]$ShopLag = 0, [switch]$Planets, [string]$Levels = "planets",
   [int]$HostShopLag = 0, [switch]$Secret, [string]$Tags = "both",
-  [switch]$TestTags, [switch]$OldNbc, [switch]$Wish, [int]$Slow = 0, [string]$Only = "", [switch]$Continue, [switch]$TwoWindows)
+  [switch]$TestTags, [switch]$OldNbc, [switch]$Wish, [int]$Slow = 0, [string]$Only = "", [switch]$Continue, [switch]$TwoWindows,
+  [int]$PackLag = 0, [switch]$Reroll)
 $root = "C:\coop-anything\local"
 $exe = "$root\bal-test\Balatro.exe"
 $mod = "$root\balatro-duo\BalatroDuo"
@@ -43,6 +45,8 @@ if ($TestTags) { $common += @("--duo-test-tags") }
 if ($OldNbc) { $common += @("--duo-test-old-nbc") }
 if ($Wish) { $common += @("--duo-test-wish") }
 if ($Slow -gt 0) { $common += @("--duo-test-slow", "$Slow") }
+if ($PackLag -gt 0) { $common += @("--duo-test-pack-lag", "$PackLag") }
+if ($Reroll) { $common += @("--duo-test-reroll") }
 if ($Only -ne "guest") {
   $hostMode = "--duo-host"; if ($TwoWindows) { $hostMode = "--duo-two-windows" }
   $hostArgs = @("--mod-dir", "$root\bal-appdata\p1\Balatro\Mods", $hostMode, "--duo-window", "left", "--duo-seed", "HOSTSEED", "--duo-bot-deck", $HostDeck) + $common

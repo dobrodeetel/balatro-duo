@@ -6,7 +6,7 @@
 # Exit code 0 when every check passes.
 param([string]$HostLog, [string]$GuestLog, [string]$Mode = "", [switch]$ShopLag, [switch]$Planets, [string]$Levels = "planets",
   [switch]$HostShopLag, [switch]$Secret, [string]$Tags = "both",
-  [string]$Restart = "", [switch]$TestTags, [switch]$Wish, [switch]$Slow)
+  [string]$Restart = "", [switch]$TestTags, [switch]$Wish, [switch]$Slow, [switch]$Reroll)
 
 function KV($msg) {
   $kv = @{}
@@ -19,7 +19,8 @@ function Parse($path) {
     lvl_own = @(); lvl_peer = @(); blocked = 0; early = 0; clicks = @();
     flush_bad = @(); flushes = 0; tag_own = @(); tag_peer = @(); first_tag_own = -1; first_tag_peer = -1;
     waits = @(); wait_on = $null; hv_peer = @(); pool = @(); resumes = @(); adopts = @(); packs = 0;
-    wish_click = 0; wish_recv = 0; wish_seen = 0; waiting = @(); nbc = 0; pulses = @() }
+    wish_click = 0; wish_recv = 0; wish_seen = 0; waiting = @(); nbc = 0; pulses = @();
+    reroll_own = @(); boss_peer = @(); selboss = @(); dollars_before = @() }
   if (-not (Test-Path $path)) { return $r }
   $i = 0
   foreach ($line in [System.IO.File]::ReadAllLines($path)) {
@@ -52,6 +53,10 @@ function Parse($path) {
     elseif ($msg.StartsWith('ADOPT')) { $r.adopts += $msg }
     elseif ($msg.StartsWith('BOT pack skip')) { $r.packs++ }
     elseif ($msg.StartsWith('BOT wish click')) { $r.wish_click++ }
+    elseif ($msg.StartsWith('REROLL own')) { $r.reroll_own += $msg }
+    elseif ($msg.StartsWith('BOSS peer')) { $r.boss_peer += $msg }
+    elseif ($msg.StartsWith('SELBOSS')) { $r.selboss += "$($kv.own)|$($kv.host)" }
+    elseif ($msg.StartsWith('BOT reroll guest')) { $r.dollars_before += $kv.dollars }
     elseif ($msg.StartsWith('WISH pulse')) { $r.pulses += "$($kv.a):$($kv.found)" }
     elseif ($msg.StartsWith('WISH ')) { $r.wish_recv++ }
     elseif ($msg.StartsWith('BOT sees wish')) { $r.wish_seen++ }
@@ -179,6 +184,20 @@ if ($Wish) {
   Check (@($h.pulses | Where-Object { $_ -like 'skip:*' }).Count -gt 0) "no skip wish was pulsed: $($h.pulses -join ',')"
   Check (-not ($h.pulses | Where-Object { $_ -eq 'skip:0' -or $_ -eq 'skip:1' -or $_ -eq 'sel:0' })) "a wish found nothing (or only part) to pulse: $($h.pulses -join ',')"
 }
+if ($Reroll) {
+  # host rerolls at ante 1, guest at ante 2: each new boss reaches the other side, and the
+  # guest faces the host's boss when the Boss blind is selected
+  Check ($h.reroll_own.Count -ge 1) "host never finished a reroll"
+  Check ($g.reroll_own.Count -ge 1) "guest never finished a reroll"
+  Check ($g.boss_peer.Count -ge 1) "guest never took the host's rerolled boss"
+  Check ($h.boss_peer.Count -ge 1) "host never took the guest's rerolled boss"
+  Check ($g.selboss.Count -ge 2) "fewer than 2 Boss selections on the guest: $($g.selboss -join ',')"
+  Check (-not ($g.selboss | Where-Object { $a, $b = $_.Split('|'); $a -ne $b })) "guest boss differed from the host's at selection: $($g.selboss -join ',')"
+  if ($g.dollars_before -and $g.reroll_own) {
+    $after = [regex]::Match($g.reroll_own[-1], 'dollars=(\S+)').Groups[1].Value
+    Check (([double]$g.dollars_before[-1] - [double]$after) -eq 10) "guest reroll cost $($g.dollars_before[-1]) -> $after, expected -10"
+  }
+}
 if ($Slow) {
   Check ($h.waiting.Count + $g.waiting.Count -gt 0) "nobody waited for the partner (no out-of-hands case)"
   Check (-not (($h.waiting + $g.waiting) -contains 'true')) "input locked while waiting: host $($h.waiting -join ',') guest $($g.waiting -join ',')"
@@ -193,6 +212,7 @@ foreach ($r in $common) {
 "  flushes host/guest=$($h.flushes)/$($g.flushes) tags host->guest=$($h.tag_own -join ',') guest->host=$($g.tag_own -join ',') " +
   "guest blind waits=$(($g.waits | ForEach-Object { '{0:n1}' -f $_ }) -join ',') secret=$($h.hv_peer -join ',') pool=$($h.pool -join ',')"
 "  packs host/guest=$($h.packs)/$($g.packs) nbc=$($h.nbc)/$($g.nbc) wishes clicked/received/seen=$($g.wish_click)/$($h.wish_recv)/$($h.wish_seen) waiting host=$($h.waiting -join ',') guest=$($g.waiting -join ',')"
+"  reroll host: $($h.reroll_own -join ' / ') | guest: $($g.reroll_own -join ' / ') | boss peer h/g: $($h.boss_peer.Count)/$($g.boss_peer.Count) | selboss: $($g.selboss -join ',')"
 "  resume host: $($h.resumes -join ' / ')"
 "  resume guest: $($g.resumes -join ' / ')"
 "  adopt host: $($h.adopts.Count) guest: $($g.adopts -join ' / ')"

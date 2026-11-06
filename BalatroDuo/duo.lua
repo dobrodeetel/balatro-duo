@@ -7,7 +7,7 @@
 ----------------------------------------------------------------------------
 DUO = DUO or {}
 local D = DUO
-D.VERSION = '0.6.1'
+D.VERSION = '0.6.2'
 D.PORT = 22123
 D.DIFFS = {1, 1.5, 2, 2.5, 3}
 
@@ -48,6 +48,8 @@ D.args = {
   test_slow = tonumber(arg_value('--duo-test-slow') or ''),
   test_continue = arg_index('--duo-test-continue') ~= nil,
   test_lang = arg_value('--duo-test-lang'),
+  test_pack_lag = tonumber(arg_value('--duo-test-pack-lag') or ''),
+  test_reroll = arg_index('--duo-test-reroll') ~= nil,
   tags = arg_value('--duo-tags'),
   mod_dir = arg_value('--mod-dir'),
 }
@@ -126,6 +128,7 @@ local STR = {
     other_run = 'У напарника другой забег: нажми "Продолжить" или начни новый',
     own_start = 'Колоды у каждого свои: начни свой забег',
     boss_wait = 'Ждём босса от хоста',
+    peer_boss = 'Напарник перебросил босса: %s',
   },
   en = {
     menu_button = 'CO-OP',
@@ -188,6 +191,7 @@ local STR = {
     other_run = 'Partner is in another run: press Continue or start a new one',
     own_start = 'Own decks: start your run',
     boss_wait = 'Waiting for the boss from the host',
+    peer_boss = 'Partner rerolled the boss: %s',
   },
 }
 -- other languages come from duo_lang.lua (appended before this file)
@@ -556,6 +560,8 @@ function D.handle(m, line)
   elseif m.t == 'tot' then
     D.pending_tot = m
     if m.q == '1' then D.send_tot(false) end
+  elseif m.t == 'boss' then
+    D.peer_boss(m)
   elseif m.t == 'wish' then
     D.wish = {a = m.a, d = m.d, r = tonumber(m.r), t = love.timer.getTime()}
     D.log('WISH a=%s d=%s r=%s', tostring(m.a), tostring(m.d), tostring(m.r))
@@ -757,10 +763,34 @@ end
 
 -- Run the game's new_blind_choice loop for tags the partner gave us, once our blind
 -- screen is up and idle (no pack opening, no tag animating).
+-- Detector: a booster opening while the previous one has not been closed yet is the
+-- two-packs-at-once bug. (A pack tag firing right after the previous pack closed is the
+-- game's normal queue, see end_consumeable.) Logged as ERR so the test checker fails on it.
+local orig_use_card = G.FUNCS.use_card
+G.FUNCS.use_card = function(e, ...)
+  local c = e and e.config and e.config.ref_table
+  if type(c) == 'table' and c.ability and c.ability.set == 'Booster' then
+    if D.pack_open then
+      D.log('ERR two packs at once: %s while %s is still open (state=%s)', tostring(c.ability.name),
+        tostring(D.pack_open), tostring(G.STATE))
+    end
+    D.pack_open = c.ability.name
+  end
+  return orig_use_card(e, ...)
+end
+local orig_end_consumeable = G.FUNCS.end_consumeable
+G.FUNCS.end_consumeable = function(...)
+  D.pack_open = nil
+  return orig_end_consumeable(...)
+end
+
 function D.run_pending_nbc()
   if not D.nbc_pending then return end
   if not (G.STATE == G.STATES.BLIND_SELECT and G.STATE_COMPLETE and G.blind_select) then return end
   if G.CONTROLLER.locks.skip_blind or G.screenwipe or D.busy() or tags_busy() then return end
+  -- the guest is about to follow the host's skip: that skip runs the same loop for every
+  -- tag, the partner's first (it was added first), so leave it to the skip
+  if D.guest_skip_pending() then return end
   D.nbc_pending = nil
   for i = 1, #G.GAME.tags do
     if G.GAME.tags[i]:apply_to_run({type = 'new_blind_choice'}) then
@@ -895,10 +925,32 @@ G.FUNCS.skip_blind = function(e)
   return orig_skip_blind(e)
 end
 
+-- Boss rerolls (Director's Cut / Retcon button, Boss Tag) are allowed on both sides:
+-- whoever rerolls pays (vanilla) and picks the boss; the new key goes to the partner
+-- ('boss'), who takes it for free. Both always face the same boss: it sets the target
+-- and the rules of the blind.
 local orig_reroll_boss = G.FUNCS.reroll_boss
 G.FUNCS.reroll_boss = function(e)
-  if D.coop() and D.role == 'guest' and not D.net_action then return refuse(e, L('host_picks'), 'reroll') end
+  if D.coop() and not D.net_action then
+    D.reroll_watch = {old = G.GAME.round_resets.blind_choices.Boss, t = love.timer.getTime(),
+      tag = G.from_boss_tag and true or false}
+    D.log('REROLL start old=%s tag=%s', tostring(D.reroll_watch.old), tostring(D.reroll_watch.tag))
+  end
   return orig_reroll_boss(e)
+end
+
+-- Our reroll has finished (the game sets the new boss in an event and then releases
+-- its boss_reroll lock): tell the partner.
+function D.reroll_update()
+  local w = D.reroll_watch
+  if not w then return end
+  local now = love.timer.getTime()
+  local key = G.GAME.round_resets.blind_choices.Boss
+  if G.CONTROLLER.locks.boss_reroll or (key == w.old and now - w.t < 3) then return end
+  D.reroll_watch = nil
+  D.boss_override = {key = key, t = now}
+  D.send({t = 'boss', k = key, n = G.GAME.round_resets.ante})
+  D.log('REROLL own %s -> %s dollars=%s', tostring(w.old), tostring(key), tostring(G.GAME.dollars))
 end
 
 -- Guest: build the blind select screen only once the host's boss is known.
@@ -912,6 +964,29 @@ local function set_guest_boss(key)
   G.GAME.bosses_used[key] = (G.GAME.bosses_used[key] or 0) + 1
   rr.blind_choices.Boss = key
   D.log('guest boss %s -> %s', tostring(old), key)
+end
+
+-- The partner rerolled the boss: take the same one, without cost or reroll animation.
+-- On the blind screen redraw it at once; elsewhere (shop) it shows when we get there.
+function D.peer_boss(m)
+  if not (in_run() and m.k and G.P_BLINDS[m.k]) then return end
+  if tonumber(m.n) ~= G.GAME.round_resets.ante then
+    D.log('BOSS peer %s ignored: ante %s, ours %d', m.k, tostring(m.n), G.GAME.round_resets.ante); return
+  end
+  local old = G.GAME.round_resets.blind_choices.Boss
+  D.boss_override = {key = m.k, t = love.timer.getTime()}
+  D.reroll_watch = nil
+  if old == m.k then D.log('BOSS peer %s (already ours)', m.k); return end
+  set_guest_boss(m.k)
+  D.log('BOSS peer %s -> %s', tostring(old), m.k)
+  if D.role == 'guest' then D.host_boss = {ante = G.GAME.round_resets.ante, key = m.k} end
+  if G.STATE == G.STATES.BLIND_SELECT and G.blind_select and not G.CONTROLLER.locks.boss_reroll then
+    D.rebuild_blind_select()
+  else
+    D.boss_redraw = true
+  end
+  local ok, name = pcall(localize, {type = 'name_text', set = 'Blind', key = m.k})
+  D.toast(string.format(L('peer_boss'), ok and name or m.k), 'boss')
 end
 
 -- Guest: use the host's boss for this ante when it is known. If it isn't yet, ask for
@@ -1004,7 +1079,10 @@ local function align_blinds()
     and open(T.Big) == open(st.Big) and open(T.Boss) == open(st.Boss)
   if same then
     D.mismatch_since = nil
-    if D.role == 'guest' and H.p == 'blind' and T.boss and T.boss ~= rr.blind_choices.Boss then
+    -- a reroll just happened on either side: the partner's position may still carry the
+    -- old boss for a moment, don't take it back
+    local fresh = D.boss_override and now - D.boss_override.t < 5 and D.boss_override.key == rr.blind_choices.Boss
+    if D.role == 'guest' and H.p == 'blind' and T.boss and T.boss ~= rr.blind_choices.Boss and not fresh then
       D.log('ADOPT boss %s->%s', tostring(rr.blind_choices.Boss), T.boss)
       set_guest_boss(T.boss)
       D.rebuild_blind_select()
@@ -1048,6 +1126,17 @@ end
 
 -- Guest: skip whatever the host has skipped on this ante and we have not.
 -- State based, so a missed or garbled message heals itself.
+-- Guest: the host has skipped a blind on this ante that we have not skipped yet.
+function D.guest_skip_pending()
+  local hs = D.host_bst
+  if D.role ~= 'guest' or not hs or hs.ante ~= G.GAME.round_resets.ante then return false end
+  local states = G.GAME.round_resets.blind_states
+  for _, d in ipairs({'Small', 'Big'}) do
+    if hs[d] == 'Skipped' and states[d] ~= 'Skipped' and states[d] ~= 'Defeated' then return true end
+  end
+  return false
+end
+
 local function guest_skip_sync()
   local hs = D.host_bst
   if not hs or hs.ante ~= G.GAME.round_resets.ante then return false end
@@ -1073,6 +1162,10 @@ local function guest_actions()
   local locks = G.CONTROLLER.locks
   if not (G.STATE == G.STATES.BLIND_SELECT and G.blind_select and G.blind_prompt_box) then return end
   if locks.skip_blind or locks.boss_reroll or G.screenwipe then return end
+  -- a tag may be opening a pack right now (its 'yep' animation runs on the blind screen,
+  -- the pack state comes after): skipping then fires our own pack tag on top of it
+  -- (two packs at once; found with the partner's Charm Tag arriving 0.4 s before our skip)
+  if D.busy() or tags_busy() then return end
   if guest_skip_sync() then return end
   if #D.actions == 0 then return end
   local m = table.remove(D.actions, 1)
@@ -1085,7 +1178,11 @@ local function guest_actions()
   G.GAME.blind_on_deck = m.d
   D.net_action = true
   if m.t == 'sel' then
-    if m.d == 'Boss' then set_guest_boss(m.k) end
+    if m.d == 'Boss' then
+      -- the boss we face vs the host's: they must already be the same here
+      D.log('SELBOSS own=%s host=%s', tostring(G.GAME.round_resets.blind_choices.Boss), tostring(m.k))
+      set_guest_boss(m.k)
+    end
     D.next_target = tonumber(m.g)
     D.log('SEL r=%d d=%s k=%s g=%s', G.GAME.round + 1, m.d, m.k, m.g)
     pcall(G.FUNCS.select_blind, {config = {ref_table = G.P_BLINDS[m.k]}})
@@ -1505,6 +1602,7 @@ function D.update(dt)
 
   D.hands_update()
   D.run_pending_nbc()
+  D.reroll_update()
   align_blinds()
   if D.role == 'guest' then
     guest_actions()
@@ -2049,8 +2147,22 @@ function D.bot_update(dt)
     if now - st.shop_t > stay then st.shop_t = nil; G.FUNCS.toggle_shop(nil); st.next = now + 1 end
   elseif (s == S.TAROT_PACK or s == S.PLANET_PACK or s == S.SPECTRAL_PACK or s == S.STANDARD_PACK
     or s == S.BUFFOON_PACK) and quiet and G.pack_cards then
+    -- test: stay in a pack a while like a person picking cards (the partner meanwhile
+    -- sits idle on its blind screen, which is when a received pack tag fires there)
+    if D.args.test_pack_lag then
+      st.pack_t = st.pack_t or now
+      if now - st.pack_t < D.args.test_pack_lag then return end
+    end
+    st.pack_t = nil
     D.log('BOT pack skip state=%s', tostring(s))
     G.FUNCS.skip_booster(nil); st.next = now + 1
+  elseif s == S.BLIND_SELECT and quiet and G.blind_select and D.role == 'guest' and D.args.test_reroll
+    and G.GAME.blind_on_deck == 'Boss' and G.GAME.round_resets.ante == 2 and not st.rerolled then
+    -- test: the guest rerolls the boss at ante 2 the way the voucher button does (pays $10)
+    st.rerolled = true
+    D.log('BOT reroll guest dollars=%s', tostring(G.GAME.dollars))
+    G.FUNCS.reroll_boss({})
+    st.next = now + 2
   elseif s == S.BLIND_SELECT and quiet and G.blind_select and D.role == 'guest' and D.args.test_wish then
     -- test: the guest presses a real button once per blind (skip on Small, select on the
     -- others); the host must see it
@@ -2066,6 +2178,25 @@ function D.bot_update(dt)
       btn:click()
     end
   elseif s == S.BLIND_SELECT and quiet and G.blind_select and D.role ~= 'guest' then
+    -- test: the host rerolls the boss at ante 1 (as Boss Tag does, free), then gives the
+    -- guest time to take it; at ante 2 it waits for the guest's reroll before selecting
+    if D.args.test_reroll and D.role == 'host' and G.GAME.blind_on_deck == 'Boss' then
+      local ante = G.GAME.round_resets.ante
+      if ante == 1 and not st.rerolled then
+        st.rerolled, st.reroll_t = true, now
+        D.log('BOT reroll host (tag)')
+        G.from_boss_tag = true
+        G.FUNCS.reroll_boss({})
+        return
+      end
+      if ante == 1 and now - (st.reroll_t or 0) < 4 then return end
+      if ante == 2 and not (D.boss_override and D.boss_override.key == G.GAME.round_resets.blind_choices.Boss
+        and not st.boss2_ok) then
+        st.boss2_t = st.boss2_t or now
+        if now - st.boss2_t < 15 and not st.boss2_ok then return end
+      end
+      if ante == 2 then st.boss2_ok = true end
+    end
     -- test: give the guest's wish time to arrive, then act
     if D.args.test_wish and D.role == 'host' and D.peer_ready() and not D.wish then
       local wkey = G.GAME.round .. G.GAME.blind_on_deck

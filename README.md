@@ -34,7 +34,18 @@ Set by the host in CO-OP -> *What is shared...*:
 | Secret hands | shared (default; their planets can appear for both) / each their own |
 
 Other things that are synced: the partner's score only after its count animation, the boss
-(host's), blind progress, the guest's select/skip wishes shown on the host's screen.
+(either side can reroll it with Director's Cut / Retcon or a Boss Tag; the one who rerolls
+pays, the partner gets the same boss), blind progress, the guest's select/skip wishes shown
+on the host's screen.
+
+## Playing over the internet
+
+The mod runs both windows on one PC. To play with a friend on another PC, stream the guest
+window with a game streaming tool and let the friend's gamepad drive it, for example
+[Parsec](https://parsec.app) (free for personal use) or
+[Sunshine](https://github.com/LizardByte/Sunshine) + [Moonlight](https://moonlight-stream.org).
+Only the host needs the game. If the host's own gamepad is connected too, the friend's pad may
+come up as gamepad #2: switch CO-OP -> "Gamepad #1 drives" to the host window.
 
 ## How it works
 
@@ -58,16 +69,20 @@ side (`duo_log.txt`) is compared by `tools/check_logs.ps1`. Run on Windows Power
 
 | Script | What it does |
 |---|---|
-| `tools/run_all.ps1` | all 9 scenarios below, 400 s timeout each (~35 min) |
-| `tools/run_suite.ps1` | one bot game; `-ShopLag`, `-HostShopLag`, `-Planets`, `-Secret`, `-TestTags`, `-Wish`, `-Slow`, `-DeckMode own` |
+| `tools/run_all.ps1` | all 11 scenarios below, 400 s timeout each (~45 min) |
+| `tools/run_suite.ps1` | one bot game; `-ShopLag`, `-HostShopLag`, `-Planets`, `-Secret`, `-TestTags`, `-Wish`, `-Slow`, `-DeckMode own`, `-PackLag` (bots sit in packs like a person), `-GuestLag`, `-Reroll` (host and guest reroll the boss) |
 | `tools/run_restart.ps1` | kills the host, the guest or both mid-run and restarts them; `-SelfRelaunch` lets the host reopen a dead guest |
 | `tools/lang_test.ps1` | switches the game language and screenshots the CO-OP menus |
 | `tools/win_test.ps1` | window placement across restarts |
 
 Scenarios: shop lag + planets, host shop lag + secret hands, tag stack (Double Tag + Charm Tag
 on both: the old host crash), guest wishes + slow guest (out of hands), own decks, host killed,
-guest killed, both killed, guest killed and reopened by the host. Last full run (0.6.0): 9/9
-passed. 0.6.1: scenarios 1-2, the wish run (47/47) and all 15 languages.
+guest killed, both killed, guest killed and reopened by the host, tag stack with slow packs, boss
+rerolls on both sides. Last full run (0.6.0, first 9): 9/9
+passed. 0.6.1: scenarios 1-2, the wish run (47/47) and all 15 languages. 0.6.2: tag stack with
+slow packs (41/41), boss rerolls (46/46), scenario 1 (46/46), host killed (20/20). Every run
+also fails on `ERR two packs at once`, which the mod logs when a pack opens while another is
+still open.
 
 The scripts expect this layout (paths are at the top of each script):
 `C:\coop-anything\local\bal-test` (a copy of the game folder with Lovely), `...\balatro-duo\BalatroDuo`
@@ -80,7 +95,7 @@ checks SHA-256 `40b994a0...1f7`, writes `dist/BalatroDuo-<version>.zip`).
 ## Known issues / not tested
 
 - A gamepad in the window without focus (button presses) is not tested.
-- Antes above 2, Mr. Bones, boss reroll vouchers and Boss Tag on the guest are not tested.
+- Antes above 2 and Mr. Bones are covered by playtests only.
 - Continue and catch-up were tested by bots on antes 1-2, not at high antes.
 - Starting a second window from Steam while one runs opens it with the host's profile; only
   the host opens the guest window.

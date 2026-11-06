@@ -1,4 +1,4 @@
-BALATRO DUO 0.6.1 — two-player co-op on one PC
+BALATRO DUO 0.6.2 — two-player co-op on one PC
 ================================================
 (Русский: ПРОЧТИ.txt)
 
@@ -9,6 +9,14 @@ deck and shop. Only the blind score is shared: both players' points add up,
 and the blind is beaten when the shared score reaches the target.
 Blinds, skips and the boss are picked by the host (the window where
 "Play together" was pressed).
+
+New in 0.6.2
+------------
+- Fixed: when both players got a pack tag from a skip (e.g. two Charm Tags), the
+  guest could open both packs at once. Packs now open one after another on both sides.
+- Boss rerolls work from both windows: the Director's Cut / Retcon button (costs
+  $10 to whoever presses it) and Boss Tag. The partner gets the same new boss for free
+  ("Partner rerolled the boss: ...").
 
 New in 0.6.1
 ------------
@@ -144,7 +152,7 @@ folder; the game is back to normal. The second window's profile
 Not tested yet
 --------------
 - a gamepad in the window that doesn't have focus (button presses);
-- antes above 2, the Mr. Bones joker, boss reroll vouchers, Boss Tag on the guest;
+- antes above 2, the Mr. Bones joker;
 - continuing and catching up were tested with bots on antes 1-2, not yet at
   high antes or with people;
 - shared hand levels switched on in the middle of a run (levels gained before
