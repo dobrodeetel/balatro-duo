@@ -6,7 +6,7 @@
 # Exit code 0 when every check passes.
 param([string]$HostLog, [string]$GuestLog, [string]$Mode = "", [switch]$ShopLag, [switch]$Planets, [string]$Levels = "planets",
   [switch]$HostShopLag, [switch]$Secret, [string]$Tags = "both",
-  [string]$Restart = "", [switch]$TestTags, [switch]$Wish, [switch]$Slow, [switch]$Reroll)
+  [string]$Restart = "", [switch]$TestTags, [switch]$Wish, [switch]$Slow, [switch]$Reroll, [switch]$Pause, [switch]$Ante)
 
 function KV($msg) {
   $kv = @{}
@@ -20,7 +20,8 @@ function Parse($path) {
     flush_bad = @(); flushes = 0; tag_own = @(); tag_peer = @(); first_tag_own = -1; first_tag_peer = -1;
     waits = @(); wait_on = $null; hv_peer = @(); pool = @(); resumes = @(); adopts = @(); packs = 0;
     wish_click = 0; wish_recv = 0; wish_seen = 0; waiting = @(); nbc = 0; pulses = @();
-    reroll_own = @(); boss_peer = @(); selboss = @(); dollars_before = @() }
+    reroll_own = @(); boss_peer = @(); selboss = @(); dollars_before = @();
+    pauses = @(); gmenu = @(); ante_own = @(); ante_peer = @(); ante_ignored = @(); shifts = 0 }
   if (-not (Test-Path $path)) { return $r }
   $i = 0
   foreach ($line in [System.IO.File]::ReadAllLines($path)) {
@@ -62,6 +63,12 @@ function Parse($path) {
     elseif ($msg.StartsWith('BOT sees wish')) { $r.wish_seen++ }
     elseif ($msg.StartsWith('BOT waiting')) { $r.waiting += $kv.locked }
     elseif ($msg.StartsWith('NBC fired')) { $r.nbc++ }
+    elseif ($msg.StartsWith('GUESTMENU') -or $msg.StartsWith('BLOCKED start_')) { $r.gmenu += $msg }
+    elseif ($msg.StartsWith('TESTPAUSE on')) { $r.pauses += $kv.r }
+    elseif ($msg.StartsWith('EASE shift')) { $r.shifts++ }
+    elseif ($msg.StartsWith('ANTE own')) { $r.ante_own += $msg }
+    elseif ($msg -match '^ANTE peer .* ignored') { $r.ante_ignored += $msg }
+    elseif ($msg.StartsWith('ANTE peer')) { $r.ante_peer += $msg }
     if ($msg.StartsWith('SEL ')) { $r.sel += "$($kv.r)|$($kv.d)|$($kv.k)|$([double]$kv.g)" }
     elseif ($msg.StartsWith('SKIP ')) { $r.skip += "$($kv.r)|$($kv.d)" }
     elseif ($msg.StartsWith('RE ')) { $r.rounds[$kv.r] = $kv }
@@ -178,6 +185,8 @@ if ($TestTags) {
 if ($Wish) {
   Check ($g.wish_click -gt 0) "guest bot never pressed select"
   Check ($h.wish_recv -eq $g.wish_click) "guest pressed $($g.wish_click) times, host got $($h.wish_recv) wishes"
+  # the guest may open the Play menu, but Play in it is refused and the menu stays open
+  Check (($g.gmenu -join ' / ') -match 'GUESTMENU open overlay=true / BLOCKED start_setup_run / GUESTMENU after play overlay=true') "guest Play menu: $($g.gmenu -join ' / ')"
   Check ($h.wish_seen -gt 0) "host bot never saw a wish on its blind screen"
   # every wish pulses something on the host; a skip pulses the skip button and the tag
   Check ($h.pulses.Count -eq $h.wish_recv) "host pulsed $($h.pulses.Count) of $($h.wish_recv) wishes: $($h.pulses -join ',')"
@@ -198,6 +207,18 @@ if ($Reroll) {
     Check (([double]$g.dollars_before[-1] - [double]$after) -eq 10) "guest reroll cost $($g.dollars_before[-1]) -> $after, expected -10"
   }
 }
+if ($Pause) {
+  # the host's own count was paused for longer than 0.6.2's 20 s wait while the guest
+  # scored: the round totals checks above must still hold
+  Check ($h.pauses.Count -ge 1) "the host never paused during its own count"
+}
+if ($Ante) {
+  # Hieroglyph on the host, then Petroglyph on the guest: each time both go back one ante
+  Check ($h.ante_own.Count -eq 1 -and $g.ante_own.Count -eq 1) "expected one ante voucher each: host $($h.ante_own.Count) guest $($g.ante_own.Count)"
+  Check ($g.ante_peer.Count -eq $h.ante_own.Count -and $h.ante_peer.Count -eq $g.ante_own.Count) "ante moves not followed: host own/peer $($h.ante_own.Count)/$($h.ante_peer.Count) guest $($g.ante_own.Count)/$($g.ante_peer.Count)"
+  Check (($h.ante_ignored.Count + $g.ante_ignored.Count) -eq 0) "ante message ignored: $($h.ante_ignored + $g.ante_ignored)"
+  Check (-not ($h.adopts + $g.adopts | Where-Object { $_ -match 'ADOPT ante (\d+)->(\d+)' -and $Matches[1] -ne $Matches[2] })) "blind alignment moved an ante: $($h.adopts + $g.adopts)"
+}
 if ($Slow) {
   Check ($h.waiting.Count + $g.waiting.Count -gt 0) "nobody waited for the partner (no out-of-hands case)"
   Check (-not (($h.waiting + $g.waiting) -contains 'true')) "input locked while waiting: host $($h.waiting -join ',') guest $($g.waiting -join ',')"
@@ -212,6 +233,7 @@ foreach ($r in $common) {
 "  flushes host/guest=$($h.flushes)/$($g.flushes) tags host->guest=$($h.tag_own -join ',') guest->host=$($g.tag_own -join ',') " +
   "guest blind waits=$(($g.waits | ForEach-Object { '{0:n1}' -f $_ }) -join ',') secret=$($h.hv_peer -join ',') pool=$($h.pool -join ',')"
 "  packs host/guest=$($h.packs)/$($g.packs) nbc=$($h.nbc)/$($g.nbc) wishes clicked/received/seen=$($g.wish_click)/$($h.wish_recv)/$($h.wish_seen) waiting host=$($h.waiting -join ',') guest=$($g.waiting -join ',')"
+"  pauses host=$($h.pauses -join ',') ease shifts h/g=$($h.shifts)/$($g.shifts) ante host: $($h.ante_own + $h.ante_peer -join ' / ') | guest: $($g.ante_own + $g.ante_peer -join ' / ')"
 "  reroll host: $($h.reroll_own -join ' / ') | guest: $($g.reroll_own -join ' / ') | boss peer h/g: $($h.boss_peer.Count)/$($g.boss_peer.Count) | selboss: $($g.selboss -join ',')"
 "  resume host: $($h.resumes -join ' / ')"
 "  resume guest: $($g.resumes -join ' / ')"

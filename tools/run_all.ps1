@@ -14,7 +14,9 @@ $scenarios = @(
   @{ name = 'restart both at 130 s'; cmd = { & "$here\run_restart.ps1" -Kill both -KillAfter 130 -TimeoutSec 400 } },
   @{ name = 'guest dies, host reopens it'; cmd = { & "$here\run_restart.ps1" -Kill guest -KillAfter 80 -SelfRelaunch -TimeoutSec 400 } },
   @{ name = 'tag stack, slow packs (guest double pack)'; cmd = { & "$here\run_suite.ps1" -TestTags -PackLag 6 -GuestLag 1 -TimeoutSec 400 } },
-  @{ name = 'boss rerolls on both sides'; cmd = { & "$here\run_suite.ps1" -Reroll -TimeoutSec 400 } }
+  @{ name = 'boss rerolls on both sides'; cmd = { & "$here\run_suite.ps1" -Reroll -TimeoutSec 400 } },
+  @{ name = 'host paused 30 s during its own count'; cmd = { & "$here\run_suite.ps1" -Pause 30 -TimeoutSec 500 } },
+  @{ name = 'ante vouchers on both sides'; cmd = { & "$here\run_suite.ps1" -Ante -TimeoutSec 700 } }
 )
 $results = @()
 $i = 0

@@ -1,4 +1,4 @@
-BALATRO DUO 0.6.2 — two-player co-op on one PC
+BALATRO DUO 0.6.3 — two-player co-op on one PC
 ================================================
 (Русский: ПРОЧТИ.txt)
 
@@ -9,6 +9,36 @@ deck and shop. Only the blind score is shared: both players' points add up,
 and the blind is beaten when the shared score reaches the target.
 Blinds, skips and the boss are picked by the host (the window where
 "Play together" was pressed).
+
+New in 0.6.3
+------------
+- Fixed: the partner's points could vanish from the shared score. When counting
+  your own hand took longer than 20 seconds (the game paused or a menu open during
+  the count, a long joker chain), points the partner scored meanwhile were
+  overwritten. The two screens then disagreed: one side won the blind, the other
+  lost the run.
+- The "Shared score ... (you + partner)" line stays on screen after the round
+  ends, until the shop opens.
+- The blind screen shows the partner's skip tag under your own ("Partner's tag";
+  hover it for the description). Handy when a friend plays over Parsec and only
+  sees their own window.
+- Hieroglyph / Petroglyph (-1 ante): the ante is shared, both go back. The buyer
+  pays and loses the hand or discard; the partner's ante follows for free
+  ("Partner moved the ante back..."). Before, the buyer went back alone and the
+  blind alignment moved it forward again at once: the voucher was wasted.
+- The guest can open the Play menu to look at decks, stakes and challenges.
+  Only the host can start or continue a run from it.
+- The partner's Orbital Tag shows which hand it levels (it said "[poker hand]").
+- Once a minute the log gets a PERF line (frames per second, frame time, memory).
+  If a window gets slower over time, send that window's duo_log.txt.
+  When the game update takes over 6 ms a frame, every 5 minutes the mod samples
+  for 5 s which game functions take the time (PROF lines).
+- Fixed: the gamepad window lost frames over a long session (60 down to 20 in two
+  hours). The game itself leaks there: in gamepad mode the Buy / Sell / Use buttons under
+  a card leave their UI elements behind, and the game updated all of them every frame
+  (up to 8000). Every 10 s the mod takes them out of the update (LEAK line in the log)
+  and also closes two more of the game's leaks (blind particles, the Cash Out button).
+  A 107-minute playtest after that stayed at 60 fps.
 
 New in 0.6.2
 ------------

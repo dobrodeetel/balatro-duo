@@ -7,7 +7,7 @@
 ----------------------------------------------------------------------------
 DUO = DUO or {}
 local D = DUO
-D.VERSION = '0.6.2'
+D.VERSION = '0.6.3'
 D.PORT = 22123
 D.DIFFS = {1, 1.5, 2, 2.5, 3}
 
@@ -50,6 +50,12 @@ D.args = {
   test_lang = arg_value('--duo-test-lang'),
   test_pack_lag = tonumber(arg_value('--duo-test-pack-lag') or ''),
   test_reroll = arg_index('--duo-test-reroll') ~= nil,
+  test_pause = tonumber(arg_value('--duo-test-pause') or ''),
+  test_ante = arg_index('--duo-test-ante') ~= nil,
+  test_old_ease = arg_index('--duo-test-old-ease') ~= nil,
+  profile = arg_index('--duo-profile') ~= nil,
+  test_jokers = tonumber(arg_value('--duo-test-jokers') or ''),
+  test_pad = tonumber(arg_value('--duo-test-pad') or ''),
   tags = arg_value('--duo-tags'),
   mod_dir = arg_value('--mod-dir'),
 }
@@ -129,6 +135,8 @@ local STR = {
     own_start = 'Колоды у каждого свои: начни свой забег',
     boss_wait = 'Ждём босса от хоста',
     peer_boss = 'Напарник перебросил босса: %s',
+    peer_tag_label = 'Тег напарника',
+    peer_ante = 'Напарник откатил анте: теперь анте %s',
   },
   en = {
     menu_button = 'CO-OP',
@@ -192,6 +200,8 @@ local STR = {
     own_start = 'Own decks: start your run',
     boss_wait = 'Waiting for the boss from the host',
     peer_boss = 'Partner rerolled the boss: %s',
+    peer_tag_label = "Partner's tag",
+    peer_ante = 'Partner moved the ante back: now ante %s',
   },
 }
 -- other languages come from duo_lang.lua (appended before this file)
@@ -443,6 +453,7 @@ function D.reset_run_state()
   D.actions = {}
   D.host_boss = nil
   D.host_bst = nil
+  D.peer_tags = nil
   D.hv_sent = {}
   D.peer_known = {}
   D.next_target = nil
@@ -476,6 +487,14 @@ function D.coop() return D.active and in_run() end
 function D.new_id() return string.format('%d%04d', os.time(), math.random(0, 9999)) end
 function D.run_id() return in_run() and G.GAME.duo and G.GAME.duo.id or nil end
 
+-- Orbital Tag: the hand it levels is rolled per ante and blind when the blind screen is
+-- built (create_UIBox_blind_choice), kept in G.GAME.orbital_choices
+local function orbital(d)
+  local oc = G.GAME.orbital_choices and G.GAME.orbital_choices[G.GAME.round_resets.ante]
+  local h = oc and oc[d]
+  return h and h:gsub(' ', '_') or '-'
+end
+
 function D.send_sync(ph)
   local ir = in_run()
   local rr = ir and G.GAME.round_resets
@@ -484,7 +503,9 @@ function D.send_sync(ph)
     local back = G.GAME.selected_back and G.GAME.selected_back.effect and G.GAME.selected_back.effect.center.key
     f = {'1', tostring(D.run_id() or '-'), ph, rr.ante, G.GAME.round, G.GAME.blind_on_deck or '-',
       rr.blind_states.Small or '-', rr.blind_states.Big or '-', rr.blind_states.Boss or '-',
-      rr.blind_choices.Boss or '-', back or '-', G.GAME.stake or 1, G.GAME.challenge or '-'}
+      rr.blind_choices.Boss or '-', back or '-', G.GAME.stake or 1, G.GAME.challenge or '-',
+      rr.blind_tags and rr.blind_tags.Small or '-', rr.blind_tags and rr.blind_tags.Big or '-',
+      orbital('Small'), orbital('Big')}
   else
     f = {'0', '-', ph}
   end
@@ -492,7 +513,7 @@ function D.send_sync(ph)
   if key == D.sent_sync then return end
   D.sent_sync = key
   D.send({t = 'sy', i = f[1], id = f[2], p = f[3], a = f[4], r = f[5], o = f[6], s = f[7], b = f[8], x = f[9],
-    k = f[10], dk = f[11], sk = f[12], ch = f[13]})
+    k = f[10], dk = f[11], sk = f[12], ch = f[13], ts = f[14], tb = f[15], os = f[16], ob = f[17]})
 end
 
 local function on_sync(m)
@@ -501,6 +522,24 @@ local function on_sync(m)
     s = m.s, b = m.b, x = m.x, k = (m.k and m.k ~= '-') and m.k or nil, dk = m.dk, sk = tonumber(m.sk),
     ch = m.ch, t = now}
   D.peer_sync = H
+  -- the partner's skip tags for its blind screen: rolled at cash out (like the boss), so
+  -- valid from the shop on
+  if H.inrun and (H.p == 'blind' or H.p == 'blind_wait' or H.p == 'shop') then
+    local ts = (m.ts and m.ts ~= '-' and G.P_TAGS[m.ts]) and m.ts or nil
+    local tb = (m.tb and m.tb ~= '-' and G.P_TAGS[m.tb]) and m.tb or nil
+    local function hand(x)
+      local h = x and x ~= '-' and x:gsub('_', ' ')
+      return (h and G.GAME and G.GAME.hands and G.GAME.hands[h]) and h or nil
+    end
+    local os_, ob = hand(m.os), hand(m.ob)
+    local pt = D.peer_tags
+    if not pt or pt.ante ~= H.ante or pt.Small ~= ts or pt.Big ~= tb or pt.oSmall ~= os_ or pt.oBig ~= ob then
+      D.peer_tags = {ante = H.ante, Small = ts, Big = tb, oSmall = os_, oBig = ob}
+      D.peer_tags_dirty = true
+      D.log('PTAGS ante=%s small=%s big=%s orbital=%s/%s', tostring(H.ante), tostring(ts), tostring(tb),
+        tostring(m.os), tostring(m.ob))
+    end
+  end
   if D.role ~= 'guest' or not H.inrun then return end
   -- the host's blind states are only stable on its blind screen
   if H.p == 'blind' then
@@ -523,6 +562,39 @@ function D.send_tot(query)
   D.send({t = 'tot', r = G.GAME.round, m = num(r.mine + (r.unsent or 0)), q = query and 1 or 0})
 end
 
+-- The game's count of a hand is an 'ease' event on G.GAME.chips whose end value is fixed
+-- when the hand is scored (evaluate_play): whatever is written to chips meanwhile is
+-- overwritten when it lands. 0.6.2 waited for it with a 20 s cap; a count that took
+-- longer (the game paused, a long joker chain) lost the partner's points added after
+-- the cap (playtest: own screen 14k, status line 9k + 11k).
+local function chips_eases()
+  local list = {}
+  for _, q in pairs(G.E_MANAGER.queues) do
+    for _, ev in ipairs(q) do
+      if ev.trigger == 'ease' and not ev.complete and ev.ease and ev.ease.ref_table == G.GAME
+        and ev.ease.ref_value == 'chips' then
+        list[#list + 1] = ev
+      end
+    end
+  end
+  return list
+end
+D.chips_eases = chips_eases
+
+-- Add to the blind score so that a count still running keeps it.
+local function add_chips(delta)
+  if delta == 0 then return end
+  G.GAME.chips = G.GAME.chips + delta
+  -- test: 0.6.2 behaviour (a running count overwrites what was added)
+  if D.args.test_old_ease then return end
+  for _, ev in ipairs(chips_eases()) do
+    ev.ease.end_val = ev.ease.end_val + delta
+    if ev.ease.start_time then ev.ease.start_val = ev.ease.start_val + delta end
+    D.log('EASE shift %s end=%s', num(delta), num(ev.ease.end_val))
+  end
+end
+D.add_chips = add_chips
+
 function D.apply_tot()
   local m = D.pending_tot
   if not m or D.own_easing or not in_run() then return end
@@ -540,7 +612,7 @@ function D.apply_tot()
   local t = tonumber(m.m) or 0
   if t ~= r.theirs or r.pending ~= 0 then
     r.theirs, r.pending = t, 0
-    G.GAME.chips = r.mine + (r.unsent or 0) + r.theirs
+    add_chips(r.mine + (r.unsent or 0) + r.theirs - G.GAME.chips)
     D.log('TOT r=%s theirs=%s chips=%s', m.r, num(t), num(G.GAME.chips))
   end
 end
@@ -562,6 +634,8 @@ function D.handle(m, line)
     if m.q == '1' then D.send_tot(false) end
   elseif m.t == 'boss' then
     D.peer_boss(m)
+  elseif m.t == 'ante' then
+    D.peer_ante(m)
   elseif m.t == 'wish' then
     D.wish = {a = m.a, d = m.d, r = tonumber(m.r), t = love.timer.getTime()}
     D.log('WISH a=%s d=%s r=%s', tostring(m.a), tostring(m.d), tostring(m.r))
@@ -654,6 +728,15 @@ function DUO_on_hand(cur, amt)
     D.own_easing = true
     D.own_target = cur + amt
     D.own_ease_t = love.timer.getTime()
+    -- test: the host pauses the game while its own hand counts (like opening the menu
+    -- mid-count) for longer than 0.6.2's 20 s wait, while the guest keeps scoring
+    if D.args.test_pause and D.role == 'host' and rid >= 2 and not D.test_pause and not (D.test_paused or {})[rid] then
+      D.test_paused = D.test_paused or {}
+      D.test_paused[rid] = true
+      -- next frame: an event created while paused runs anyway (created_on_pause), the
+      -- count event is created right after this returns
+      D.test_pause_next = {r = rid, target = cur + amt}
+    end
   end
   return cur + amt
 end
@@ -939,6 +1022,44 @@ G.FUNCS.reroll_boss = function(e)
   return orig_reroll_boss(e)
 end
 
+-- Hieroglyph / Petroglyph (-1 ante): the ante is shared, both go back. Before 0.6.3 the
+-- buyer went back alone and the blind screen alignment ("furthest along wins") moved it
+-- forward again: the voucher cost a hand or discard for nothing. Now the buyer pays
+-- (vanilla: money and -1 hand or discard) and the partner's ante follows for free.
+local orig_card_apply = Card.apply_to_run
+function Card:apply_to_run(center)
+  local name = center and center.name or self and self.ability and self.ability.name
+  local extra = center and center.config and center.config.extra or self and self.ability and self.ability.extra
+  local before = in_run() and G.GAME.round_resets.ante
+  orig_card_apply(self, center)
+  if (name == 'Hieroglyph' or name == 'Petroglyph') and D.coop() and not D.from_peer and tonumber(extra) then
+    D.send({t = 'ante', d = -extra, n = before})
+    D.log('ANTE own %s %d -> %d', name, before, before - extra)
+  end
+end
+
+function D.peer_ante(m)
+  local d, from = tonumber(m.d), tonumber(m.n)
+  if not (in_run() and d and from) then return end
+  local rr = G.GAME.round_resets
+  if rr.ante ~= from then
+    D.log('ANTE peer %s ignored: from %s, ours %d', tostring(d), tostring(from), rr.ante); return
+  end
+  -- what the voucher does to the ante, without its hand / discard cost
+  D.from_peer = true
+  ease_ante(d)
+  D.from_peer = false
+  rr.blind_ante = (rr.blind_ante or rr.ante) + d
+  D.log('ANTE peer %d -> %d', from, from + d)
+  D.ante_peer_seen = true
+  -- the blind screen shows the ante's blind sizes: redraw it once the ante changed
+  G.E_MANAGER:add_event(Event({func = function()
+    if G.STATE == G.STATES.BLIND_SELECT and G.blind_select then D.rebuild_blind_select() end
+    return true
+  end}))
+  D.toast(string.format(L('peer_ante'), from + d), 'ante')
+end
+
 -- Our reroll has finished (the game sets the new boss in an event and then releases
 -- its boss_reroll lock): tell the partner.
 function D.reroll_update()
@@ -1034,6 +1155,59 @@ function D.rebuild_blind_select()
   G.blind_select.alignment.offset.y = 0.8 - (G.hand.T.y - G.jokers.T.y) + G.blind_select.T.h
   G.blind_select.alignment.offset.x = 0
 end
+
+-- The partner's skip tag under ours on the blind screen (playtest: a friend playing over
+-- Parsec sees only its own window and could not tell whether skipping is worth it).
+-- Smaller, with a label; hovering it shows the tag's text as for our own.
+local orig_blind_tag = create_UIBox_blind_tag
+function create_UIBox_blind_tag(blind_choice, run_info)
+  local node = orig_blind_tag(blind_choice, run_info)
+  local pt = D.peer_tags
+  if not (node and not run_info and D.coop() and pt and pt.ante == G.GAME.round_resets.ante and pt[blind_choice]) then
+    return node
+  end
+  local ok, err = pcall(function()
+    -- for_collection: no own Orbital hand pulled into the partner's tag
+    local tag = Tag(pt[blind_choice], true, blind_choice)
+    -- the partner's Orbital Tag levels the partner's hand (playtest: the text said
+    -- "[poker hand]"); known once the partner's blind screen was built
+    if pt['o' .. blind_choice] then tag.ability.orbital_hand = pt['o' .. blind_choice] end
+    D.log('PTAG ui d=%s k=%s hand=%s', blind_choice, pt[blind_choice], tostring(pt['o' .. blind_choice]))
+    local tag_ui = tag:generate_UI(0.55)
+    local okn, name = pcall(localize, {type = 'name_text', set = 'Tag', key = pt[blind_choice]})
+    node.nodes[#node.nodes + 1] = {n = G.UIT.R, config = {id = 'duo_peer_tag', align = 'cm', padding = 0.05}, nodes = {
+      {n = G.UIT.C, config = {align = 'cm', padding = 0.06, r = 0.1, colour = {0, 0, 0, 0.25}}, nodes = {
+        {n = G.UIT.C, config = {align = 'cm'}, nodes = {
+          {n = G.UIT.R, config = {align = 'cm'}, nodes = {
+            {n = G.UIT.T, config = {text = L('peer_tag_label'), scale = 0.28, colour = G.C.UI.TEXT_LIGHT}}}},
+          {n = G.UIT.R, config = {align = 'cm', maxw = 2.2}, nodes = {
+            {n = G.UIT.T, config = {text = okn and name or pt[blind_choice], scale = 0.3, colour = G.C.WHITE}}}},
+        }},
+        tag_ui,
+      }},
+    }}
+  end)
+  if not ok then D.log('ERR peer tag ui %s', tostring(err)) end
+  return node
+end
+
+-- The partner's tags arrived or changed while our blind screen is up: redraw it once it
+-- is quiet.
+local function peer_tags_update()
+  if not D.peer_tags_dirty then return end
+  if not (G.STATE == G.STATES.BLIND_SELECT and G.blind_select) then
+    -- not on the blind screen: it is built with the current tags when we get there
+    if G.STATE ~= G.STATES.BLIND_SELECT then D.peer_tags_dirty = nil end
+    return
+  end
+  local locks = G.CONTROLLER.locks
+  if not (G.STATE_COMPLETE and G.blind_prompt_box) or locks.skip_blind or locks.boss_reroll or G.screenwipe
+    or #D.actions > 0 or D.busy() then return end
+  D.peer_tags_dirty = nil
+  D.log('PTAGS redraw')
+  D.rebuild_blind_select()
+end
+D.peer_tags_update = peer_tags_update
 
 -- Blind screen alignment (both sides). Whoever is further along is right: the one
 -- behind takes the other's ante, round, blind states and boss and redraws its blind
@@ -1215,15 +1389,25 @@ G.FUNCS.can_play = function(e)
 end
 
 ------------------------------------------------------------ new run
--- Shared deck mode: only the host starts runs; the guest follows.
+-- Shared deck mode: only the host starts runs; the guest follows. The guest may open the
+-- Play menu to look at decks, stakes and challenges; starting or continuing from it is
+-- refused here (every way out of that menu goes through start_run).
 local function guest_locked()
   return D.active and D.role == 'guest' and D.shared_deck() and not D.net_action
 end
 
-local orig_setup_run = G.FUNCS.setup_run
-G.FUNCS.setup_run = function(e)
-  if guest_locked() then D.toast(L('host_starts')); return end
-  return orig_setup_run(e)
+-- Play / Continue / a challenge in that menu: say no and keep the menu open
+for _, name in ipairs({'start_setup_run', 'start_challenge_run'}) do
+  local orig = G.FUNCS[name]
+  G.FUNCS[name] = function(e, ...)
+    if guest_locked() then
+      if e then e.disable_button = nil end
+      D.toast(L('host_starts'))
+      D.log('BLOCKED %s', name)
+      return
+    end
+    return orig(e, ...)
+  end
 end
 
 local orig_start_run = G.FUNCS.start_run
@@ -1443,7 +1627,12 @@ local function round_update()
   local r = D.R(rid)
   local now = love.timer.getTime()
 
-  if D.own_easing and (G.GAME.chips == D.own_target or now - D.own_ease_t > 20) then
+  -- own count landed: its ease event is gone from the queue (not a timer: the game
+  -- pauses events while paused). After 60 s give up waiting; points added then still
+  -- land, add_chips shifts the running count.
+  local cap = D.args.test_old_ease and 20 or 60
+  if D.own_easing and (#chips_eases() == 0 or now - D.own_ease_t > cap) then
+    if #chips_eases() > 0 then D.log('EASE still running after %d s, flushing', cap) end
     D.own_easing = false
     D.flush_score(rid)
   end
@@ -1456,7 +1645,7 @@ local function round_update()
   local s, S = G.STATE, G.STATES
   local in_round = s == S.SELECTING_HAND or s == S.DRAW_TO_HAND or s == S.HAND_PLAYED or s == S.PLAY_TAROT
   if in_round and r.pending ~= 0 and not D.own_easing and G.GAME.facing_blind then
-    G.GAME.chips = G.GAME.chips + r.pending
+    add_chips(r.pending)
     r.theirs = r.theirs + r.pending
     D.log('apply r=%d +%s chips=%s', rid, num(r.pending), num(G.GAME.chips))
     r.pending = 0
@@ -1514,6 +1703,29 @@ function D.update(dt)
   if not G.STAGE then return end
   local now = love.timer.getTime()
   if D.role and now - (D.win_t or 0) > 2 then D.win_t = now; D.track_window() end
+  if D.test_pause_next then
+    D.log('TESTPAUSE on r=%d for %ds target=%s eases=%d', D.test_pause_next.r, D.args.test_pause,
+      num(D.test_pause_next.target), #D.chips_eases())
+    D.test_pause_next = nil
+    D.test_pause = now + D.args.test_pause
+    G.SETTINGS.paused = true
+  end
+  if D.test_pause and now > D.test_pause then
+    D.test_pause = nil
+    G.SETTINGS.paused = false
+    D.log('TESTPAUSE off chips=%s', num(G.GAME and G.GAME.chips))
+  end
+  D.perf_update(dt)
+  D.profile_update()
+  if now - (D.leak_t or 0) > 10 then
+    D.leak_t = now
+    local ok, err = pcall(D.sweep_ui_leaks)
+    if not ok then D.log('ERR leak sweep %s', tostring(err)) end
+  end
+  -- shop opened: the round's screens are gone, sweep what they left behind
+  local in_shop = G.STATE == G.STATES.SHOP
+  if in_shop and not D.was_shop then pcall(D.sweep_orphans) end
+  D.was_shop = in_shop
 
   -- No partner while out of hands (or won) in a round: finish the round as a solo game
   -- would, but only once co-op is off or the partner stayed away for 90 s. A crashed
@@ -1603,13 +1815,19 @@ function D.update(dt)
   D.hands_update()
   D.run_pending_nbc()
   D.reroll_update()
+  peer_tags_update()
   align_blinds()
   if D.role == 'guest' then
     guest_actions()
   elseif D.wish then
     -- show the guest's wish on our blind screen: pulse the button it pressed
-    if ph ~= 'blind' or D.wish.r ~= G.GAME.round or now - D.wish.t > 30 then
+    -- a wish sent while we are still in the shop (the guest got to its blind screen first)
+    -- or while our blind screen is being built waits for the screen (bot run: the host
+    -- was in the shop when the guest's Boss wish came, and it was dropped)
+    if (ph ~= 'blind' and ph ~= 'blind_wait' and ph ~= 'shop') or D.wish.r ~= G.GAME.round or now - D.wish.t > 30 then
       D.wish = nil
+    elseif ph ~= 'blind' then
+      -- screen not up yet
     elseif now - (D.wish.pulse or 0) > 0.8 then
       D.wish.pulse = now
       local ok, err = pcall(function()
@@ -1937,10 +2155,16 @@ local function status_lines()
   if D.role == 'host' then lines[#lines + 1] = D.active and L('host_ok') or L('host_wait')
   elseif D.role == 'guest' then lines[#lines + 1] = D.active and L('guest_ok') or L('guest_wait') end
   if D.coop() then
-    if G.GAME.facing_blind then
+    local ph = phase()
+    if G.GAME.facing_blind and (ph == 'round' or ph == 'eval') then
       local r = D.R(G.GAME.round)
-      lines[#lines + 1] = string.format(L('score'), number_format(G.GAME.chips), number_format(G.GAME.blind.chips),
-        number_format(r.mine), number_format(r.theirs + r.pending))
+      D.last_score = {round = G.GAME.round, text = string.format(L('score'), number_format(G.GAME.chips),
+        number_format(G.GAME.blind.chips), number_format(r.mine), number_format(r.theirs + r.pending))}
+      lines[#lines + 1] = D.last_score.text
+    elseif D.last_score and D.last_score.round == G.GAME.round and ph == 'eval' then
+      -- the round is over: keep who scored what on screen through the cash out screen,
+      -- until the shop opens
+      lines[#lines + 1] = D.last_score.text
     end
     if D.wait_text then lines[#lines + 1] = D.wait_text end
     if D.role == 'host' and D.wish and G.STATE == G.STATES.BLIND_SELECT then
@@ -2028,6 +2252,20 @@ function D.bot_update(dt)
   st.next = now + 0.4
   if not G.STAGE then return end
   if D.args.speed then G.SETTINGS.GAMESPEED = D.args.speed end
+  -- test: play the whole run in gamepad mode (as the guest over Parsec does)
+  if D.args.test_pad and G.CONTROLLER then
+    -- the game's own emulated pad (no real one in the test VM)
+    G.CONTROLLER:set_gamepad(G.CONTROLLER.keyboard_controller)
+    G.CONTROLLER:set_HID_flags('button')
+    -- and wander with the D-pad between actions: focus moves show card tooltips
+    if not st.pad and in_run() and not G.CONTROLLER.held_buttons.a then
+      local dirs = {'dpleft', 'dpright', 'dpup', 'dpdown'}
+      local d = dirs[math.random(1, 4)]
+      love.gamepadpressed(G.CONTROLLER.keyboard_controller, d)
+      love.gamepadreleased(G.CONTROLLER.keyboard_controller, d)
+      st.wander = (st.wander or 0) + 1
+    end
+  end
   G.SETTINGS.tutorial_complete = true
   if now - (st.dbg or 0) > 5 then
     st.dbg = now
@@ -2061,6 +2299,22 @@ function D.bot_update(dt)
     if not st.over then st.over = now; D.log('BOT gameover ante=%d round=%d', G.GAME.round_resets.ante, G.GAME.round) end
     if now - st.over > 4 then love.event.quit() end
     return
+  end
+  -- test: in its first shop the guest opens the run setup menu (Options -> New Run; the
+  -- main menu Play button opens the same one): allowed. Play in it is refused and the
+  -- menu stays open; then the bot closes it.
+  if D.args.test_wish and D.role == 'guest' and in_run() and s == S.SHOP and G.shop and not G.screenwipe then
+    if not st.gm and not G.OVERLAY_MENU and not D.busy() then
+      st.gm = now
+      G.FUNCS.setup_run({config = {}})
+      D.log('GUESTMENU open overlay=%s', tostring(G.OVERLAY_MENU ~= nil))
+      return
+    elseif st.gm and not st.gm_play and now - st.gm > 1.5 then
+      st.gm_play = true
+      G.FUNCS.start_setup_run({config = {}})
+      D.log('GUESTMENU after play overlay=%s round=%d', tostring(G.OVERLAY_MENU ~= nil), G.GAME.round)
+      return
+    end
   end
   -- a person clicks unlock / discovery popups away; the bot does it after a moment
   if in_run() and G.OVERLAY_MENU and s ~= S.GAME_OVER then
@@ -2124,6 +2378,82 @@ function D.bot_update(dt)
         st.shop_t = now; st.next = now + 3
         return
       end
+    end
+    -- test: the host redeems Hieroglyph in its first ante 2 shop; once both are back at
+    -- ante 2, the guest redeems Petroglyph (the voucher effect through the game's own
+    -- Card:apply_to_run, as a bought voucher runs it)
+    if D.args.test_ante and G.GAME.round_resets.ante == 2 and not st.ante_used then
+      local key = D.role == 'host' and 'v_hieroglyph' or (D.ante_peer_seen and 'v_petroglyph')
+      if key then
+        st.ante_used = true
+        D.log('BOT redeem %s ante=%d hands=%d discards=%d', key, G.GAME.round_resets.ante,
+          G.GAME.round_resets.hands, G.GAME.round_resets.discards)
+        Card.apply_to_run(nil, G.P_CENTERS[key])
+        st.shop_t = now; st.next = now + 3
+        return
+      end
+    end
+    -- test: fill the joker slots with random jokers in each shop (long runs that look like
+    -- a person's: per-frame joker updates, more scoring)
+    if D.args.test_jokers and st.jk_round ~= G.GAME.round and #G.jokers.cards < math.min(D.args.test_jokers, G.jokers.config.card_limit) then
+      st.jk_round = G.GAME.round
+      while #G.jokers.cards < math.min(D.args.test_jokers, G.jokers.config.card_limit) do
+        local card = create_card('Joker', G.jokers, nil, nil, nil, nil, nil, 'duotest')
+        card:add_to_deck()
+        G.jokers:emplace(card)
+        D.log('BOT joker %s', tostring(card.ability.name))
+      end
+      st.shop_t = now; st.next = now + 2
+      return
+    end
+    -- test: rearrange the jokers with the gamepad (hold A on a joker, D-pad left/right,
+    -- release), N moves per shop, the way a person shuffles them (playtest: the guest window
+    -- lost frames fast while a player did this)
+    if D.args.test_pad and #G.jokers.cards >= 2 and st.pad_round ~= G.GAME.round then
+      local pad = G.CONTROLLER.keyboard_controller
+      local ps = st.pad
+      if not ps then
+        st.pad = {moves = 0, dir = 'dpright', tries = 0}
+        G.CONTROLLER:snap_to({node = G.jokers.cards[1]})
+        st.next = now + 0.3
+        return
+      end
+      local f0 = G.CONTROLLER.focused.target
+      if not ps.held and not (f0 and f0.area == G.jokers) then
+        -- focus follows the cursor a frame later; walk up to the jokers with the D-pad
+        ps.tries = ps.tries + 1
+        if ps.tries > 12 then
+          D.log('BOT pad no joker focus (%s)', tostring(f0 and (f0.ability and f0.ability.name or f0.config and f0.config.id)))
+          st.pad, st.pad_round = nil, G.GAME.round
+          return
+        end
+        if ps.tries % 3 == 0 then G.CONTROLLER:snap_to({node = G.jokers.cards[1]})
+        else love.gamepadpressed(pad, 'dpup'); love.gamepadreleased(pad, 'dpup') end
+        st.next = now + 0.3
+        return
+      end
+      if not ps.held then
+        D.log('BOT pad start focus=%s', tostring(f0 and f0.ability and f0.ability.name))
+        ps.held = true
+        love.gamepadpressed(pad, 'a')
+        st.next = now + 0.3
+        return
+      end
+      if ps.moves < D.args.test_pad then
+        ps.moves = ps.moves + 1
+        local f = G.CONTROLLER.focused.target
+        if f and f.rank then
+          if f.rank >= #G.jokers.cards then ps.dir = 'dpleft' elseif f.rank <= 1 then ps.dir = 'dpright' end
+        end
+        love.gamepadpressed(pad, ps.dir); love.gamepadreleased(pad, ps.dir)
+        st.next = now + 0.15
+        return
+      end
+      love.gamepadreleased(pad, 'a')
+      D.log('BOT pad done moves=%d dragging=%s', ps.moves, tostring(G.CONTROLLER.dragging.target ~= nil))
+      st.pad, st.pad_round = nil, G.GAME.round
+      st.shop_t = now; st.next = now + 1
+      return
     end
     -- test: the guest "finds" Five of a Kind in its first shop; the host checks that
     -- Planet X is now in its own planet pool
@@ -2288,11 +2618,250 @@ function D.lang_test()
   end
 end
 
+-- Where UIBoxes, Particles and DynaTexts are made (the 2 nearest callers outside the
+-- class itself): a census of G.MOVEABLES by creation site shows what is never removed.
+local function remember_site(cls)
+  if not cls or not cls.init then return end
+  local orig = cls.init
+  cls.init = function(self, ...)
+    local r = orig(self, ...)
+    local parts = {}
+    for lv = 3, 6 do
+      local info = debug.getinfo(lv, 'Sl')
+      if not info then break end
+      local src = info.short_src or '?'
+      if not src:find('engine/') then parts[#parts + 1] = src .. ':' .. tostring(info.currentline) end
+      if #parts >= 2 then break end
+    end
+    self.duo_src = table.concat(parts, '<')
+    return r
+  end
+end
+remember_site(UIBox)
+remember_site(Particles)
+remember_site(DynaText)
+
+-- Two leaks of the game itself (bot census of G.MOVEABLES over a long run, both windows):
+-- - Blind:defeat makes a new Particles in self.children.particles without removing the
+--   previous one; the blind object lives through the run, so one Particles per blind stays
+--   in G.MOVEABLES (updated every frame).
+-- - The Cash Out button is its own UIBox with major = G.round_eval; cash_out removes
+--   G.round_eval, not the button, so one button (with its texts) stays per round.
+-- Remove the old particles first, and sweep UIBoxes whose major was removed when the
+-- shop opens.
+local orig_blind_defeat = Blind.defeat
+function Blind:defeat(silent)
+  local old = self.children and self.children.particles
+  if old and not old.REMOVED then pcall(function() old:remove() end) end
+  return orig_blind_defeat(self, silent)
+end
+
+function D.sweep_orphans()
+  local n = 0
+  for i = #G.I.UIBOX, 1, -1 do
+    local b = G.I.UIBOX[i]
+    local major = b and b.role and b.role.major
+    if major and major ~= b and major.REMOVED and not b.REMOVED then
+      pcall(function() b:remove() end)
+      n = n + 1
+    end
+  end
+  if n > 0 then D.log('SWEEP removed %d UIBoxes whose major was gone', n) end
+end
+
+-- UI elements left behind. Playtest 3 (guest window, gamepad over Parsec, jokers moved
+-- around many times): G.MOVEABLES grew to 8000+ UIElements while UIBoxes stayed at ~20,
+-- and the game's update took 40-60 ms a frame; the host window (mouse) stayed at ~1000.
+-- Bots in gamepad mode did not reproduce it. Every 10 s: take out of G.MOVEABLES (the list
+-- Game:update moves and updates every frame) the UIElements whose UIBox was removed, and
+-- those no longer in their parent's children for two checks in a row. Only the list entry
+-- goes; the element's objects are not touched, so nothing still shown can break.
+D.leak = {n = 0, kinds = {}}
+function D.sweep_ui_leaks()
+  local keep, gone = {}, 0
+  for _, m in ipairs(G.MOVEABLES) do
+    local drop = false
+    if getmetatable(m) == UIElement then
+      local box = m.UIBox
+      if box and box.REMOVED then
+        drop = 'deadbox'
+      elseif m.parent and m.parent.children and m ~= (box and box.UIRoot) then
+        local found = false
+        for _, c in pairs(m.parent.children) do if c == m then found = true; break end end
+        if not found then
+          if m.duo_detached then drop = 'detached' else m.duo_detached = true end
+        else
+          m.duo_detached = nil
+        end
+      end
+    end
+    if drop then
+      gone = gone + 1
+      -- a dead box's element is gone for good; a detached one keeps its state in case
+      -- something still holds it
+      if drop == 'deadbox' then m.REMOVED = true end
+      local k = drop .. '@' .. tostring(m.UIBox and m.UIBox.duo_src or '?')
+      D.leak.kinds[k] = (D.leak.kinds[k] or 0) + 1
+    else
+      keep[#keep + 1] = m
+    end
+  end
+  if gone > 0 then
+    for i = #G.MOVEABLES, 1, -1 do G.MOVEABLES[i] = nil end
+    for i, m in ipairs(keep) do G.MOVEABLES[i] = m end
+    D.leak.n = D.leak.n + gone
+  end
+end
+
+-- Performance line in the log once a minute (playtest: the window driven over Parsec
+-- dropped from 144 to ~20 fps over two hours). Frame times, where the time goes (game
+-- update / game draw / mod), Lua memory and the game's object counts, so a slow
+-- window's log shows what grows.
+D.perf = {frames = 0, worst = 0, t_game = 0, t_draw = 0, t_mod = 0, t_modd = 0, t0 = nil}
+local clock = love.timer.getTime
+function D.perf_update(dt)
+  local p = D.perf
+  local now = clock()
+  p.t0 = p.t0 or now
+  p.frames = p.frames + 1
+  if dt > p.worst then p.worst = dt end
+  if now - p.t0 < 60 then return end
+  local span = now - p.t0
+  local counts = {}
+  for _, k in ipairs({'NODE', 'MOVEABLE', 'SPRITE', 'UIBOX', 'CARD', 'CARDAREA', 'POPUP', 'PARTICLE'}) do
+    local t = G.I and G.I[k]
+    counts[#counts + 1] = k:lower() .. '=' .. (t and #t or -1)
+  end
+  local events = 0
+  for _, q in pairs(G.E_MANAGER and G.E_MANAGER.queues or {}) do events = events + #q end
+  -- what Game:update walks every frame: G.MOVEABLES (every Moveable, UI elements too),
+  -- G.ANIMATIONS, the stage objects; the controller's lock table
+  local function n(t) local c = 0; for _ in pairs(t or {}) do c = c + 1 end; return c end
+  counts[#counts + 1] = 'moveables=' .. n(G.MOVEABLES)
+  counts[#counts + 1] = 'anims=' .. n(G.ANIMATIONS)
+  counts[#counts + 1] = 'stage=' .. n(G.STAGE_OBJECTS and G.STAGE_OBJECTS[G.STAGE])
+  counts[#counts + 1] = 'locks=' .. n(G.CONTROLLER and G.CONTROLLER.locks)
+  counts[#counts + 1] = 'jokers=' .. (G.jokers and #G.jokers.cards or -1)
+  counts[#counts + 1] = 'deck=' .. (G.playing_cards and #G.playing_cards or -1)
+  local C = G.CONTROLLER or {}
+  local reg = 0
+  for _, r in pairs(C.button_registry or {}) do reg = reg + #r end
+  counts[#counts + 1] = 'reg=' .. reg
+  counts[#counts + 1] = 'coll=' .. n(C.collision_list)
+  counts[#counts + 1] = 'held=' .. n(C.held_button_times) .. '/' .. n(C.held_key_times)
+  counts[#counts + 1] = 'cstack=' .. n(C.cursor_context and C.cursor_context.stack)
+  counts[#counts + 1] = 'fstack=' .. n(C.focus_cursor_stack)
+  counts[#counts + 1] = 'drawhash=' .. n(G.DRAW_HASH)
+  counts[#counts + 1] = 'pad=' .. tostring(C.HID and C.HID.controller)
+  -- what G.MOVEABLES holds, by class (Sprite: by atlas), top 8
+  local classes = {Card = Card, CardArea = CardArea, UIBox = UIBox, UIElement = UIElement, Sprite = Sprite,
+    AnimatedSprite = AnimatedSprite, DynaText = DynaText, Particles = Particles, Moveable = Moveable, Blind = Blind}
+  local byname = {}
+  for k, v in pairs(classes) do if v then byname[v] = k end end
+  local census = {}
+  for _, m in pairs(G.MOVEABLES or {}) do
+    local name = byname[getmetatable(m)] or '?'
+    if name == 'Sprite' or name == 'AnimatedSprite' then
+      name = name .. ':' .. tostring(m.atlas and m.atlas.name or '?')
+    end
+    if m.duo_src and (name == 'UIBox' or name == 'Particles' or name == 'DynaText') then name = name .. '@' .. m.duo_src end
+    if name == 'UIElement' then
+      -- which box it belongs to, and whether that box or its parent chain is still alive
+      local box = m.UIBox
+      local dead = (not box) and 'nobox' or (box.REMOVED and 'deadbox') or nil
+      if not dead and m.parent and m.parent.children then
+        local found = false
+        for _, c in pairs(m.parent.children) do if c == m then found = true; break end end
+        if not found then dead = 'detached' end
+      end
+      name = 'UIE' .. (dead and (':' .. dead) or '') .. '@' .. tostring(box and box.duo_src or '?')
+    end
+    census[name] = (census[name] or 0) + 1
+  end
+  local cl = {}
+  for k, c in pairs(census) do cl[#cl + 1] = {k, c} end
+  table.sort(cl, function(x, y) return x[2] > y[2] end)
+  local top = {}
+  for i = 1, math.min(14, #cl) do top[#top + 1] = cl[i][1] .. '=' .. cl[i][2] end
+  D.log('MOVE %s', table.concat(top, ' '))
+  if D.leak.n > 0 then
+    local kl = {}
+    for k, c in pairs(D.leak.kinds) do kl[#kl + 1] = k .. '=' .. c end
+    D.log('LEAK swept %d UI elements this minute: %s', D.leak.n, table.concat(kl, ' '))
+    D.leak = {n = 0, kinds = {}}
+  end
+  local info = love.filesystem.getInfo(LOG_FILE)
+  D.log('PERF fps=%.1f worst_ms=%.0f game_ms=%.2f draw_ms=%.2f mod_ms=%.2f mod_draw_ms=%.2f mem_kb=%.0f events=%d %s focus=%s speed=%s log_kb=%.0f',
+    p.frames / span, p.worst * 1000, p.t_game * 1000 / p.frames, p.t_draw * 1000 / p.frames, p.t_mod * 1000 / p.frames, p.t_modd * 1000 / p.frames,
+    collectgarbage('count'), events, table.concat(counts, ' '), tostring(love.window.hasFocus()),
+    tostring(G.SETTINGS and G.SETTINGS.GAMESPEED), info and info.size / 1024 or 0)
+  local game_ms = p.t_game * 1000 / p.frames
+  p.frames, p.worst, p.t_game, p.t_draw, p.t_mod, p.t_modd, p.t0 = 0, 0, 0, 0, 0, 0, now
+  -- slow game update: sample where the time goes for 5 s (LuaJIT profiler), at most
+  -- every 5 minutes, and log the busiest stacks
+  if (game_ms > 6 or D.args.profile) and now - (p.prof_t or -1e9) > 300 then
+    p.prof_t = now
+    D.profile_start(5)
+  end
+end
+
+-- Sampling profiler. The game's LuaJIT has no jit.profile, so: JIT off for the sample
+-- (count hooks only fire in the interpreter), a count hook every 1000 VM instructions
+-- records the 4 innermost Lua frames as "file:line". Proportions, not exact times.
+function D.profile_start(secs)
+  if D.prof_stop then return end
+  local stacks, leaves, total = {}, {}, 0
+  local getinfo = debug.getinfo
+  local function hook()
+    local parts = {}
+    for lv = 2, 5 do
+      local info = getinfo(lv, 'Sl')
+      if not info then break end
+      -- leaf: the line; callers: the function (where it is defined)
+      parts[#parts + 1] = (info.short_src or '?') .. ':' .. tostring(lv == 2 and info.currentline or info.linedefined)
+    end
+    local st = table.concat(parts, '|')
+    stacks[st] = (stacks[st] or 0) + 1
+    local fn = getinfo(2, 'S')
+    local key = fn and ((fn.short_src or '?') .. ':' .. tostring(fn.linedefined)) or '?'
+    leaves[key] = (leaves[key] or 0) + 1
+    total = total + 1
+  end
+  pcall(function() jit.off() end)
+  debug.sethook(hook, '', 1000)
+  D.log('PROF start %ds', secs)
+  D.prof_stop = {t = clock() + secs, stacks = stacks, leaves = leaves, total = function() return total end}
+end
+
+function D.profile_update()
+  local ps = D.prof_stop
+  if not ps or clock() < ps.t then return end
+  D.prof_stop = nil
+  debug.sethook()
+  pcall(function() jit.on() end)
+  local total = ps.total()
+  local function top(t, k)
+    local list = {}
+    for key, c in pairs(t) do list[#list + 1] = {key, c} end
+    table.sort(list, function(a, b) return a[2] > b[2] end)
+    for i = 1, math.min(k, #list) do
+      D.log('PROF %s %d %.0f%% %s', t == ps.leaves and 'func' or 'stack', list[i][2], 100 * list[i][2] / math.max(1, total), list[i][1])
+    end
+  end
+  D.log('PROF done samples=%d', total)
+  top(ps.leaves, 15)
+  top(ps.stacks, 15)
+end
+
 local orig_update = love.update
 function love.update(dt)
+  local t0 = clock()
   orig_update(dt)
+  local t1 = clock()
+  D.perf.t_game = D.perf.t_game + (t1 - t0)
   local ok, err = pcall(D.update, dt)
   if not ok then D.log('ERR update %s', tostring(err)) end
+  D.perf.t_mod = D.perf.t_mod + (clock() - t1)
   if D.args.test_lang then
     local ok3, err3 = pcall(D.lang_test)
     if not ok3 then D.log('ERR langtest %s', tostring(err3)) end
@@ -2305,8 +2874,12 @@ end
 
 local orig_draw = love.draw
 function love.draw()
+  local t0 = clock()
   orig_draw()
+  local t1 = clock()
   pcall(D.draw)
+  D.perf.t_draw = D.perf.t_draw + (t1 - t0)
+  D.perf.t_modd = D.perf.t_modd + (clock() - t1)
 end
 
 D.reset_run_state()

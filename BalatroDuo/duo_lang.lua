@@ -8,6 +8,8 @@
 DUO_LANG = {
   de = {
     peer_boss = "Partner hat den Boss neu gewürfelt: %s",
+    peer_tag_label = "Tag des Partners",
+    peer_ante = "Partner hat die Ante zurückgesetzt: jetzt Ante %s",
     menu_button = "KOOP", title = "Koop zu zweit", two_windows = "Zusammen spielen (2 Fenster)",
     host_only = "Host: auf Partner warten", join = "Mit Host verbinden", disconnect = "Koop ausschalten",
     diff = "Blind-Schwierigkeit (Host)", pad = "Gamepad 1 steuert", deck_mode = "Deck und Einsatz",
@@ -36,6 +38,8 @@ DUO_LANG = {
   },
   fr = {
     peer_boss = "Le partenaire a relancé le boss : %s",
+    peer_tag_label = "Badge du partenaire",
+    peer_ante = "Le partenaire a reculé la mise initiale : maintenant %s",
     menu_button = "COOP", title = "Coop à deux", two_windows = "Jouer ensemble (2 fenêtres)",
     host_only = "Hôte : attendre le partenaire", join = "Rejoindre l'hôte", disconnect = "Désactiver la coop",
     diff = "Difficulté des Blindes (hôte)", pad = "La manette 1 contrôle", deck_mode = "Jeu et mise",
@@ -65,6 +69,8 @@ DUO_LANG = {
   },
   es = {
     peer_boss = "El compañero cambió el jefe: %s",
+    peer_tag_label = "Etiqueta del compañero",
+    peer_ante = "El compañero retrocedió la apuesta inicial: ahora %s",
     menu_button = "COOP", title = "Cooperativo a dos", two_windows = "Jugar juntos (2 ventanas)",
     host_only = "Anfitrión: esperar al compañero", join = "Unirse al anfitrión", disconnect = "Desactivar cooperativo",
     diff = "Dificultad de ciegas (anfitrión)", pad = "El mando 1 controla", deck_mode = "Baraja y pozo",
@@ -95,6 +101,8 @@ DUO_LANG = {
   },
   it = {
     peer_boss = "Il compagno ha cambiato il boss: %s",
+    peer_tag_label = "Patto del compagno",
+    peer_ante = "Il compagno ha riportato indietro l'ante: ora ante %s",
     menu_button = "COOP", title = "Cooperativa a due", two_windows = "Gioca insieme (2 finestre)",
     host_only = "Host: aspetta il compagno", join = "Collegati all'host", disconnect = "Disattiva la cooperativa",
     diff = "Difficoltà dei bui (host)", pad = "Il controller 1 comanda", deck_mode = "Mazzo e puntata",
@@ -124,6 +132,8 @@ DUO_LANG = {
   },
   pt = {
     peer_boss = "O parceiro trocou o chefe: %s",
+    peer_tag_label = "Marca do parceiro",
+    peer_ante = "O parceiro voltou a aposta: agora aposta %s",
     menu_button = "COOP", title = "Cooperativo a dois", two_windows = "Jogar juntos (2 janelas)",
     host_only = "Anfitrião: esperar o parceiro", join = "Conectar ao anfitrião", disconnect = "Desligar o cooperativo",
     diff = "Dificuldade dos Blinds (anfitrião)", pad = "O controle 1 comanda", deck_mode = "Baralho e aposta",
@@ -154,6 +164,8 @@ DUO_LANG = {
   },
   pl = {
     peer_boss = "Partner wylosował nowego bossa: %s",
+    peer_tag_label = "Znacznik partnera",
+    peer_ante = "Partner cofnął wejście: teraz wejście %s",
     menu_button = "KOOP", title = "Kooperacja we dwóch", two_windows = "Grajmy razem (2 okna)",
     host_only = "Host: czekaj na partnera", join = "Połącz z hostem", disconnect = "Wyłącz kooperację",
     diff = "Trudność Przeszkadzajek (host)", pad = "Pad nr 1 steruje", deck_mode = "Talia i stawka",
@@ -182,6 +194,8 @@ DUO_LANG = {
   },
   nl = {
     peer_boss = "Partner heeft de baas opnieuw gerold: %s",
+    peer_tag_label = "Tag van partner",
+    peer_ante = "Partner zette de ante terug: nu ante %s",
     menu_button = "COOP", title = "Coöp met z'n tweeën", two_windows = "Samen spelen (2 vensters)",
     host_only = "Host: wacht op partner", join = "Verbind met host", disconnect = "Coöp uitzetten",
     diff = "Moeilijkheid blinds (host)", pad = "Controller 1 bestuurt", deck_mode = "Kaartspel en inzet",
@@ -210,6 +224,8 @@ DUO_LANG = {
   },
   id = {
     peer_boss = "Partner mengocok ulang boss: %s",
+    peer_tag_label = "Tag partner",
+    peer_ante = "Partner memundurkan ante: sekarang ante %s",
     menu_button = "KOOP", title = "Koop berdua", two_windows = "Main bersama (2 jendela)",
     host_only = "Host: tunggu partner", join = "Sambung ke host", disconnect = "Matikan koop",
     diff = "Kesulitan Blind (host)", pad = "Gamepad 1 mengendalikan", deck_mode = "Deck dan Stake",
@@ -238,6 +254,8 @@ DUO_LANG = {
   },
   ja = {
     peer_boss = "相手がボスを変更：%s",
+    peer_tag_label = "相手のタグ",
+    peer_ante = "相手がアンティを戻した：アンティ%s",
     menu_button = "協力", title = "2人協力プレイ", two_windows = "一緒に遊ぶ（2ウィンドウ）",
     host_only = "ホスト：相手を待つ", join = "ホストに接続", disconnect = "協力をオフにする",
     diff = "ブラインドの難易度（ホスト）", pad = "ゲームパッド1の操作先", deck_mode = "デッキとステーク",
@@ -266,6 +284,8 @@ DUO_LANG = {
   },
   ko = {
     peer_boss = "파트너가 보스를 바꿨습니다: %s",
+    peer_tag_label = "파트너의 태그",
+    peer_ante = "파트너가 앤티를 되돌렸습니다: 앤티 %s",
     menu_button = "협동", title = "2인 협동", two_windows = "함께 플레이 (창 2개)",
     host_only = "호스트: 파트너 기다리기", join = "호스트에 접속", disconnect = "협동 끄기",
     diff = "블라인드 난이도 (호스트)", pad = "1번 게임패드 조작 대상", deck_mode = "덱과 스테이크",
@@ -293,6 +313,8 @@ DUO_LANG = {
   },
   zh_CN = {
     peer_boss = "队友重掷了Boss盲注：%s",
+    peer_tag_label = "队友的标签",
+    peer_ante = "队友回退了底注：现在底注%s",
     menu_button = "合作", title = "双人合作", two_windows = "一起玩（2 个窗口）",
     host_only = "主机：等待队友", join = "连接主机", disconnect = "关闭合作",
     diff = "盲注难度（主机）", pad = "1 号手柄控制", deck_mode = "牌组与赌注",
@@ -319,6 +341,8 @@ DUO_LANG = {
   },
   zh_TW = {
     peer_boss = "隊友重擲了Boss盲注：%s",
+    peer_tag_label = "隊友的標籤",
+    peer_ante = "隊友回退了底注：現在底注%s",
     menu_button = "合作", title = "雙人合作", two_windows = "一起玩（2 個視窗）",
     host_only = "主機：等待隊友", join = "連線到主機", disconnect = "關閉合作",
     diff = "盲注難度（主機）", pad = "1 號手把控制", deck_mode = "牌組與賭注",
