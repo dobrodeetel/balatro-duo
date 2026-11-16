@@ -6,7 +6,7 @@
 # Exit code 0 when every check passes.
 param([string]$HostLog, [string]$GuestLog, [string]$Mode = "", [switch]$ShopLag, [switch]$Planets, [string]$Levels = "planets",
   [switch]$HostShopLag, [switch]$Secret, [string]$Tags = "both",
-  [string]$Restart = "", [switch]$TestTags, [switch]$Wish, [switch]$Slow, [switch]$Reroll, [switch]$Pause, [switch]$Ante)
+  [string]$Restart = "", [switch]$TestTags, [switch]$Wish, [switch]$Slow, [switch]$Reroll, [switch]$Pause, [switch]$Ante, [switch]$NewRun)
 
 function KV($msg) {
   $kv = @{}
@@ -21,7 +21,7 @@ function Parse($path) {
     waits = @(); wait_on = $null; hv_peer = @(); pool = @(); resumes = @(); adopts = @(); packs = 0;
     wish_click = 0; wish_recv = 0; wish_seen = 0; waiting = @(); nbc = 0; pulses = @();
     reroll_own = @(); boss_peer = @(); selboss = @(); dollars_before = @();
-    pauses = @(); gmenu = @(); ante_own = @(); ante_peer = @(); ante_ignored = @(); shifts = 0 }
+    pauses = @(); gmenu = @(); nrcheck = @(); hvpeer_after = 0; newrun_at = 0; ante_own = @(); ante_peer = @(); ante_ignored = @(); shifts = 0 }
   if (-not (Test-Path $path)) { return $r }
   $i = 0
   foreach ($line in [System.IO.File]::ReadAllLines($path)) {
@@ -64,6 +64,9 @@ function Parse($path) {
     elseif ($msg.StartsWith('BOT waiting')) { $r.waiting += $kv.locked }
     elseif ($msg.StartsWith('NBC fired')) { $r.nbc++ }
     elseif ($msg.StartsWith('GUESTMENU') -or $msg.StartsWith('BLOCKED start_')) { $r.gmenu += $msg }
+    elseif ($msg.StartsWith('BOT newrun check')) { $r.nrcheck += "$($kv.visible)|$($kv.known)" }
+    elseif ($msg.StartsWith('START ') -and $r.starts.Count -ge 1) { $r.newrun_at = $i }
+    elseif ($msg -match '^HV peer h=\S+ was=' -and $r.newrun_at -gt 0) { $r.hvpeer_after++ }
     elseif ($msg.StartsWith('TESTPAUSE on')) { $r.pauses += $kv.r }
     elseif ($msg.StartsWith('EASE shift')) { $r.shifts++ }
     elseif ($msg.StartsWith('ANTE own')) { $r.ante_own += $msg }
@@ -111,7 +114,8 @@ if ($Restart) {
   Check (Tail $h.sel $g.sel) "blind selections differ after the restart: host $($h.sel -join ' ') guest $($g.sel -join ' ')"
   Check (Tail $h.skip $g.skip) "skips differ after the restart: host $($h.skip -join ' ') guest $($g.skip -join ' ')"
 } else {
-  Check ($h.starts.Count -eq 1 -and $g.starts.Count -eq 1) "expected one run start each: host $($h.starts) guest $($g.starts)"
+  $nstarts = $(if ($NewRun) { 2 } else { 1 })
+  Check ($h.starts.Count -eq $nstarts -and $g.starts.Count -eq $nstarts) "expected $nstarts run start(s) each: host $($h.starts) guest $($g.starts)"
   if ($Mode -eq 'shared' -and $h.starts -and $g.starts) { Check ($h.starts[0] -eq $g.starts[0]) "shared deck/stake differ: $($h.starts[0]) vs $($g.starts[0])" }
   if ($Mode -eq 'own' -and $h.starts -and $g.starts) { Check ($h.starts[0].Split('|')[0] -ne $g.starts[0].Split('|')[0]) "own decks expected to differ" }
   Check (Same $h.sel $g.sel) "blind selections differ: host $($h.sel -join ' ') guest $($g.sel -join ' ')"
@@ -218,6 +222,12 @@ if ($Ante) {
   Check ($g.ante_peer.Count -eq $h.ante_own.Count -and $h.ante_peer.Count -eq $g.ante_own.Count) "ante moves not followed: host own/peer $($h.ante_own.Count)/$($h.ante_peer.Count) guest $($g.ante_own.Count)/$($g.ante_peer.Count)"
   Check (($h.ante_ignored.Count + $g.ante_ignored.Count) -eq 0) "ante message ignored: $($h.ante_ignored + $g.ante_ignored)"
   Check (-not ($h.adopts + $g.adopts | Where-Object { $_ -match 'ADOPT ante (\d+)->(\d+)' -and $Matches[1] -ne $Matches[2] })) "blind alignment moved an ante: $($h.adopts + $g.adopts)"
+}
+if ($NewRun) {
+  # the guest found Five of a Kind in the first run; in the second run nobody knows it
+  Check ($h.nrcheck.Count -eq 1 -and $g.nrcheck.Count -eq 1) "second-run check missing: host $($h.nrcheck) guest $($g.nrcheck)"
+  Check (-not (($h.nrcheck + $g.nrcheck) | Where-Object { $_ -ne 'false|false' })) "a first-run secret hand is known in the second run: host $($h.nrcheck) guest $($g.nrcheck)"
+  Check ($h.hvpeer_after -eq 0 -and $g.hvpeer_after -eq 0) "secret hand taken into the second run: host $($h.hvpeer_after) guest $($g.hvpeer_after)"
 }
 if ($Slow) {
   Check ($h.waiting.Count + $g.waiting.Count -gt 0) "nobody waited for the partner (no out-of-hands case)"

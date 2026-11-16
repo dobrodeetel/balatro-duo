@@ -70,8 +70,8 @@ side (`duo_log.txt`) is compared by `tools/check_logs.ps1`. Run on Windows Power
 
 | Script | What it does |
 |---|---|
-| `tools/run_all.ps1` | all 13 scenarios below, 400-700 s timeout each (~55 min) |
-| `tools/run_suite.ps1` | one bot game; `-ShopLag`, `-HostShopLag`, `-Planets`, `-Secret`, `-TestTags`, `-Wish`, `-Slow`, `-DeckMode own`, `-PackLag` (bots sit in packs like a person), `-GuestLag`, `-Reroll` (host and guest reroll the boss), `-Pause N` (host pauses N s while its hand counts), `-Ante` (Hieroglyph on the host, Petroglyph on the guest) |
+| `tools/run_all.ps1` | all 14 scenarios below, 400-900 s timeout each (~60 min) |
+| `tools/run_suite.ps1` | one bot game; `-ShopLag`, `-HostShopLag`, `-Planets`, `-Secret`, `-TestTags`, `-Wish`, `-Slow`, `-DeckMode own`, `-PackLag` (bots sit in packs like a person), `-GuestLag`, `-Reroll` (host and guest reroll the boss), `-Pause N` (host pauses N s while its hand counts), `-Ante` (Hieroglyph on the host, Petroglyph on the guest), `-NewRun` (a second run in the same session) |
 | `tools/run_bots.ps1` | starts the two bot windows only; extra long-run options: `-Jokers N` (random jokers in each shop), `-Pad N` (gamepad mode, N joker moves per shop), `-Profile` |
 | `tools/run_restart.ps1` | kills the host, the guest or both mid-run and restarts them; `-SelfRelaunch` lets the host reopen a dead guest |
 | `tools/lang_test.ps1` | switches the game language and screenshots the CO-OP menus |
@@ -80,10 +80,13 @@ side (`duo_log.txt`) is compared by `tools/check_logs.ps1`. Run on Windows Power
 Scenarios: shop lag + planets, host shop lag + secret hands, tag stack (Double Tag + Charm Tag
 on both: the old host crash), guest wishes + slow guest (out of hands), own decks, host killed,
 guest killed, both killed, guest killed and reopened by the host, tag stack with slow packs, boss
-rerolls on both sides, host paused 30 s while its own hand counts, ante vouchers on both sides.
+rerolls on both sides, host paused 30 s while its own hand counts, ante vouchers on both sides, a
+second run in the same session (a secret hand from the first run must not carry over).
 0.6.3: 13/13 passed (2026-11-07). The last full run (2026-11-12) passed 12/13; the failure was
 the wish check, fixed after it (the wish scenario then passed 4 runs in a row, 48/48). With
-`-OldEase` the paused-count scenario reproduces the 0.6.2 score loss (9 failed checks). Every
+`-OldEase` the paused-count scenario reproduces the 0.6.2 score loss (9 failed checks). 0.6.4:
+the second-run scenario 44/44 (the partner's stale secret hand arrived after the new run had
+started and was held back) and the secret hands scenario 46/46; the full suite was not rerun. Every
 run also fails on `ERR two packs at once`, which the mod logs when a pack opens while another
 is still open.
 

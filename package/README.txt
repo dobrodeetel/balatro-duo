@@ -1,4 +1,4 @@
-BALATRO DUO 0.6.3 — two-player co-op on one PC
+BALATRO DUO 0.6.4 — two-player co-op on one PC
 ================================================
 (Русский: ПРОЧТИ.txt)
 
@@ -9,6 +9,13 @@ deck and shop. Only the blind score is shared: both players' points add up,
 and the blind is beaten when the shared score reaches the target.
 Blinds, skips and the boss are picked by the host (the window where
 "Play together" was pressed).
+
+New in 0.6.4
+------------
+- Fixed: a secret hand (e.g. Five of a Kind) found in the previous run showed up in
+  the next run of the same session: in Run Info, its planet in shops and packs, the
+  Orbital Tag. The partner stayed in the old run for a moment and sent it again. The
+  message now says which run it belongs to.
 
 New in 0.6.3
 ------------

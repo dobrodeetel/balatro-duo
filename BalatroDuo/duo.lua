@@ -7,7 +7,7 @@
 ----------------------------------------------------------------------------
 DUO = DUO or {}
 local D = DUO
-D.VERSION = '0.6.3'
+D.VERSION = '0.6.4'
 D.PORT = 22123
 D.DIFFS = {1, 1.5, 2, 2.5, 3}
 
@@ -56,6 +56,7 @@ D.args = {
   profile = arg_index('--duo-profile') ~= nil,
   test_jokers = tonumber(arg_value('--duo-test-jokers') or ''),
   test_pad = tonumber(arg_value('--duo-test-pad') or ''),
+  test_newrun = arg_index('--duo-test-newrun') ~= nil,
   tags = arg_value('--duo-tags'),
   mod_dir = arg_value('--mod-dir'),
 }
@@ -667,7 +668,7 @@ function D.handle(m, line)
   elseif m.t == 'tag' then
     D.peer_tag(m)
   elseif m.t == 'hv' then
-    D.peer_hand(m.h and m.h:gsub('_', ' '))
+    D.peer_hand(m.h and m.h:gsub('_', ' '), m.id)
   elseif m.t == 'lvl' then
     D.peer_level(m.h and m.h:gsub('_', ' '), tonumber(m.n) or 1)
   end
@@ -899,14 +900,33 @@ function D.hands_update()
     local v = G.GAME.hands[h]
     if v and v.visible and not D.hv_sent[h] then
       D.hv_sent[h] = true
-      D.send({t = 'hv', h = h:gsub(' ', '_')})
-      D.log('HV own h=%s', h:gsub(' ', '_'))
+      -- with the run id: right after a new run starts, the old run is still on screen for a
+      -- moment (start_run swaps it in an event) and its hands look new to us
+      D.send({t = 'hv', h = h:gsub(' ', '_'), id = D.run_id() or '-'})
+      D.log('HV own h=%s id=%s', h:gsub(' ', '_'), tostring(D.run_id()))
     end
+  end
+  -- a partner's hand that arrived before our side of the same run started
+  local pend = D.hv_pending and D.run_id() and D.hv_pending[D.run_id()]
+  if pend then
+    D.hv_pending[D.run_id()] = nil
+    for h in pairs(pend) do D.peer_hand(h) end
   end
 end
 
-function D.peer_hand(h)
+-- id: the partner's run. Playtest: a Five of a Kind found in the last run showed up as
+-- known in the next one (run info, its planet in shops and packs, Orbital Tags). The
+-- partner was still in the old run for a moment after the new one started and sent its
+-- hands again; they were taken into the new run.
+function D.peer_hand(h, id)
   if not (in_run() and h and SECRET[h] and G.GAME.hands[h]) or D.cfg.hands == 'own' then return end
+  if id and id ~= '-' and id ~= D.run_id() then
+    D.hv_pending = D.hv_pending or {}
+    if type(D.hv_pending[id]) ~= 'table' then D.hv_pending[id] = {} end
+    D.hv_pending[id][h] = true
+    D.log('HV peer h=%s for run %s, ours %s: kept until that run', h:gsub(' ', '_'), tostring(id), tostring(D.run_id()))
+    return
+  end
   D.peer_known[h] = true
   D.hv_sent[h] = true
   local was = G.GAME.hands[h].visible
@@ -1477,6 +1497,7 @@ function Game:start_run(args)
     -- a new run: the guest takes the host's id, the host makes one
     G.GAME.duo = {id = D.pending_id or (D.role == 'guest' and D.peer_sync and D.peer_sync.inrun and D.peer_sync.id)
       or D.new_id()}
+    D.new_runs = (D.new_runs or 0) + 1
     D.pending_id = nil
     if D.args.test_tags then
       -- test: Charm Tag on the Small blind, and a Double Tag to start with
@@ -2331,6 +2352,15 @@ function D.bot_update(dt)
   local quiet = not D.busy()
 
   if D.args.quit_ante and G.GAME.round_resets.ante > D.args.quit_ante and s == S.BLIND_SELECT then
+    -- test: a second run in the same session; the host starts it, the guest follows
+    if D.args.test_newrun and (D.new_runs or 0) < 2 then
+      if D.role ~= 'guest' and not st.newrun then
+        st.newrun = true
+        D.log('BOT newrun')
+        G.FUNCS.start_run(nil, {stake = D.args.bot_stake or 1, seed = (D.args.seed or 'DUO') .. '2'})
+      end
+      return
+    end
     D.log('BOT quit ante=%d', G.GAME.round_resets.ante); love.event.quit(); return
   end
   if s == S.SELECTING_HAND and D.wait_text and st.wait_logged ~= G.GAME.round then
@@ -2454,6 +2484,13 @@ function D.bot_update(dt)
       st.pad, st.pad_round = nil, G.GAME.round
       st.shop_t = now; st.next = now + 1
       return
+    end
+    -- test: in the first shop of the second run, no secret hand from the first run is known
+    if D.args.test_newrun and (D.new_runs or 0) >= 2 and not st.nr_checked then
+      st.nr_checked = true
+      local v = G.GAME.hands['Five of a Kind']
+      D.log('BOT newrun check visible=%s played=%s known=%s', tostring(v.visible), tostring(v.played),
+        tostring(D.peer_known['Five of a Kind'] or false))
     end
     -- test: the guest "finds" Five of a Kind in its first shop; the host checks that
     -- Planet X is now in its own planet pool

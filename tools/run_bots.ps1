@@ -18,6 +18,7 @@
 #   -Profile   : sample the game with the LuaJIT profiler every 5 minutes (PROF lines in the log)
 #   -Jokers N  : bots fill up to N joker slots with random jokers in each shop
 #   -Pad N     : in each shop, move a joker N times with the gamepad (A held + D-pad)
+#   -NewRun    : at the end the host starts a second run in the same session (the guest follows)
 #   -Ante      : host uses Hieroglyph at ante 2, then the guest uses Petroglyph at ante 2
 #   -TwoWindows: start only the host, with "Play together" (the host opens the guest window itself)
 param([double]$Diff = 1, [int]$QuitAnte = 3, [int]$Speed = 4, [switch]$NoBot,
@@ -25,7 +26,7 @@ param([double]$Diff = 1, [int]$QuitAnte = 3, [int]$Speed = 4, [switch]$NoBot,
   [int]$GuestLag = 0, [int]$ShopLag = 0, [switch]$Planets, [string]$Levels = "planets",
   [int]$HostShopLag = 0, [switch]$Secret, [string]$Tags = "both",
   [switch]$TestTags, [switch]$OldNbc, [switch]$Wish, [int]$Slow = 0, [string]$Only = "", [switch]$Continue, [switch]$TwoWindows,
-  [int]$PackLag = 0, [switch]$Reroll, [int]$Pause = 0, [switch]$Ante, [switch]$OldEase, [switch]$Profile, [int]$Jokers = 0, [int]$Pad = 0)
+  [int]$PackLag = 0, [switch]$Reroll, [int]$Pause = 0, [switch]$Ante, [switch]$OldEase, [switch]$Profile, [int]$Jokers = 0, [int]$Pad = 0, [switch]$NewRun)
 $root = "C:\coop-anything\local"
 $exe = "$root\bal-test\Balatro.exe"
 $mod = "$root\balatro-duo\BalatroDuo"
@@ -59,6 +60,7 @@ if ($OldEase) { $common += @("--duo-test-old-ease") }
 if ($Profile) { $common += @("--duo-profile") }
 if ($Jokers -gt 0) { $common += @("--duo-test-jokers", "$Jokers") }
 if ($Pad -gt 0) { $common += @("--duo-test-pad", "$Pad") }
+if ($NewRun) { $common += @("--duo-test-newrun") }
 if ($Only -ne "guest") {
   $hostMode = "--duo-host"; if ($TwoWindows) { $hostMode = "--duo-two-windows" }
   $hostArgs = @("--mod-dir", "$root\bal-appdata\p1\Balatro\Mods", $hostMode, "--duo-window", "left", "--duo-seed", "HOSTSEED", "--duo-bot-deck", $HostDeck) + $common

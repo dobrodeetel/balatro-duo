@@ -16,7 +16,8 @@ $scenarios = @(
   @{ name = 'tag stack, slow packs (guest double pack)'; cmd = { & "$here\run_suite.ps1" -TestTags -PackLag 6 -GuestLag 1 -TimeoutSec 400 } },
   @{ name = 'boss rerolls on both sides'; cmd = { & "$here\run_suite.ps1" -Reroll -TimeoutSec 400 } },
   @{ name = 'host paused 30 s during its own count'; cmd = { & "$here\run_suite.ps1" -Pause 30 -TimeoutSec 500 } },
-  @{ name = 'ante vouchers on both sides'; cmd = { & "$here\run_suite.ps1" -Ante -TimeoutSec 700 } }
+  @{ name = 'ante vouchers on both sides'; cmd = { & "$here\run_suite.ps1" -Ante -TimeoutSec 700 } },
+  @{ name = 'second run in one session (secret hand stays in the first)'; cmd = { & "$here\run_suite.ps1" -Secret -NewRun -Diff 0.1 -TimeoutSec 900 } }
 )
 $results = @()
 $i = 0
